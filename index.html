@@ -2351,6 +2351,57 @@ init();
     tick();
   }
 
+  function installSidebarToggle() {
+    const main = document.querySelector('.main');
+    const sidebar = document.querySelector('.sidebar');
+    if (!main || !sidebar) return;
+    if (!sidebar.id) sidebar.id = 'chatSidebar';
+
+    if (!document.getElementById('edgeSidebarToggleStyles')) {
+      const st = document.createElement('style');
+      st.id = 'edgeSidebarToggleStyles';
+      st.textContent = [
+        '.main{position:relative;overflow:hidden;transition:grid-template-columns .32s cubic-bezier(.4,0,.2,1)}',
+        '.sidebar{transition:transform .35s cubic-bezier(.4,0,.2,1)}',
+        '.sidebar.collapsed{transform:translateX(100%)}',
+        '.edge-sidebar-toggle{position:absolute;right:380px;top:50%;transform:translateY(-50%);width:28px;height:56px;background:#181b24;border:2px solid var(--accent);border-right:none;border-radius:28px 0 0 28px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:401;transition:right .32s cubic-bezier(.4,0,.2,1),background .2s}',
+        '.edge-sidebar-toggle:hover{background:var(--bg4)}',
+        '.edge-sidebar-toggle .toggle-arrow{font-size:11px;color:var(--accent);line-height:1;transition:transform .3s ease}',
+        '.main.sidebar-collapsed{grid-template-columns:1fr 28px!important}',
+        '.main.sidebar-collapsed .edge-sidebar-toggle{right:0}',
+        '@media(max-width:900px){.main.sidebar-collapsed{grid-template-columns:1fr!important}.edge-sidebar-toggle{position:fixed;right:0;top:140px}.sidebar{position:fixed;top:92px;right:0;width:min(92vw,380px);height:calc(100vh - 92px);z-index:390}.sidebar.collapsed{transform:translateX(calc(100% + 1px))}}'
+      ].join('');
+      document.head.appendChild(st);
+    }
+
+    let btn = document.getElementById('sidebarToggle');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'sidebarToggle';
+      btn.className = 'edge-sidebar-toggle';
+      btn.title = 'Toggle chat panel';
+      btn.innerHTML = '<span class="toggle-arrow" id="toggleArrow">›</span>';
+      main.appendChild(btn);
+    }
+
+    function applyState(collapsed) {
+      sidebar.classList.toggle('collapsed', collapsed);
+      main.classList.toggle('sidebar-collapsed', collapsed);
+      const arrow = document.getElementById('toggleArrow');
+      if (arrow) arrow.textContent = collapsed ? '‹' : '›';
+      try { localStorage.setItem('edge_chat_collapsed_v1', collapsed ? '1' : '0'); } catch (e) {}
+    }
+
+    window.toggleSidebar = function toggleSidebar() {
+      applyState(!sidebar.classList.contains('collapsed'));
+    };
+    btn.onclick = window.toggleSidebar;
+
+    let saved = null;
+    try { saved = localStorage.getItem('edge_chat_collapsed_v1'); } catch (e) {}
+    applyState(saved === '1');
+  }
+
   // init enhancements
   ensureDailyPicks();
   bootstrapPicksFromChatHistory();
@@ -2358,6 +2409,7 @@ init();
   patchAddBetForPicks();
   renderPicksTab();
   installLiveOneSecondSync();
+  installSidebarToggle();
 })();
 </script>
 </body>
