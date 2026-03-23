@@ -94,9 +94,14 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'function calcRecommendedStakeForPick(', 'kelly stake function');
   mustContain(html, 'function budgetContext()', 'budget context helper');
   mustContain(html, 'function hasBiasPressureLanguage(', 'anti-bias language filter');
+  mustContain(html, 'function sanitizeAssistantIntegrityText(', 'chat integrity sanitizer');
   mustContain(html, 'Objective model picks only (anti-bias filter active)', 'anti-bias picks banner');
   mustContain(html, 'RECOMMENDED STAKE', 'pick detail stake section');
   mustContain(html, 'Use in Bet Log', 'pick to bet-log CTA');
+  mustContain(html, 'CARD OUTPUT FORMAT (required for every recommended pick)', 'chat card format requirement');
+  mustContain(html, 'Never fabricate injuries, odds, game times, line movement, or results', 'no fabrication rule');
+  mustContain(html, 'data-pick-game-group', 'picks grouped by game');
+  mustContain(html, 'current game-time sync active', 'picks current time sync status');
 
   // Critical system/log functions still present
   [
@@ -120,6 +125,10 @@ function checkCoreFeatures(html, dom) {
     '_injuryPenalty',
     'Bias-pressure language filter active',
     'Anti-bias guardrail active',
+    '_gameStatus',
+    '_gameClock',
+    '_gameStartTs',
+    'safeText',
   ].forEach((needle) => mustContain(html, needle, `profitability marker ${needle}`));
 
   pass('core feature checks');
