@@ -795,7 +795,7 @@ body {
   <button class="nav-tab" onclick="showTab('postbets',this)">POST-GAME</button>
   <button class="nav-tab" onclick="showTab('roi',this)">ROI TRACKER</button>
   <button class="nav-tab" onclick="showTab('passlog',this)">PASS LOG</button>
-  <button class="nav-tab" onclick="showTab('rules',this)">RULES (55)</button>
+  <button class="nav-tab" onclick="showTab('rules',this)">RULES (56)</button>
   <button class="nav-tab" onclick="showTab('failures',this)">FAILURE LOG</button>
   <button class="nav-tab" onclick="showTab('learning',this)">LEARNING LOG</button>
   <button class="nav-tab" onclick="showTab('settings',this)">SETTINGS</button>
@@ -1208,6 +1208,11 @@ body {
         <div class="rule-item"><span class="rule-num">53</span><span class="rule-text"><strong>Public narrative bias flag.</strong> Marquee story teams checked for line inflation. Fade narrative when confirmed</span></div>
         <div class="rule-item"><span class="rule-num">54</span><span class="rule-text"><strong>Travel distance and time zones.</strong> 2+ zones in 24hrs = fatigue flag / 3+ = significant. All 3 leagues weighted by schedule density</span></div>
         <div class="rule-item"><span class="rule-num">55</span><span class="rule-text"><strong>Emotional spots:</strong> Revenge / must-win / statement / rivalry. ATS record in those specific spots pulled</span></div>
+      </div>
+
+      <div class="rule-section">
+        <div class="rule-section-title">Integrity</div>
+        <div class="rule-item"><span class="rule-num">56</span><span class="rule-text"><strong>Never claim a capability that is not verifiable in the code.</strong> Never say "lessons integrated" unless they appear in the system prompt. Never say the app will update unless an ACTION tag is output. This rule exists because the model previously claimed lessons were being applied when they were not. It will not happen again.</span></div>
       </div>
     </div>
 
@@ -1817,6 +1822,8 @@ function addReview() {
   renderReviews();
   updateDisplays();
   hideAddReviewForm();
+  // Auto-learn from new result
+  setTimeout(autoLearn, 100);
 }
 
 function renderReviews() {
@@ -2105,33 +2112,243 @@ function confirmApiKey() {
 }
 
 // ============================================================
-// SYSTEM PROMPT — ALL 55 RULES
+// AUTO-LEARN ENGINE
+// Runs automatically after every confirmed system result.
+// Analyzes CLV direction, edge bucket performance, market
+// patterns, and writes provisional learnings to the log
+// without needing Claude to be asked. No fabrication —
+// only patterns visible in the actual review data.
+// ============================================================
+function autoLearn() {
+  const systemReviews = state.reviews.filter(r => r.source !== 'my');
+  if (systemReviews.length < 2) return; // Need at least 2 results to find patterns
+
+  const newLearnings = [];
+  const today = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
+
+  // PATTERN 1: CLV direction vs result correlation
+  const clvWins = systemReviews.filter(r => parseFloat(r.clv) > 0 && r.result === 'WIN').length;
+  const clvTotal = systemReviews.filter(r => !isNaN(parseFloat(r.clv))).length;
+  if (clvTotal >= 2) {
+    const clvWinRate = Math.round(clvWins / clvTotal * 100);
+    const existing = state.learnings.find(l => l.pattern && l.pattern.includes('CLV direction'));
+    if (!existing && clvWinRate >= 60) {
+      newLearnings.push({
+        id: Date.now() + 1,
+        date: today,
+        pattern: `CLV direction predicts results — ${clvWinRate}% of positive CLV bets won`,
+        data: `${clvWins} of ${clvTotal} positive CLV system bets resulted in wins across ${systemReviews.length} total results.`,
+        app: 'Trust CLV as primary success metric. Positive CLV = edge is real regardless of result. Negative CLV = process was wrong even on wins.',
+        conf: clvTotal >= 6 ? 'confirmed' : 'provisional',
+        auto: true
+      });
+    }
+  }
+
+  // PATTERN 2: Edge bucket performance
+  const buckets = [
+    { label: '3-5%', min: 3, max: 5 },
+    { label: '5-10%', min: 5, max: 10 },
+    { label: '10-20%', min: 10, max: 20 },
+    { label: '20%+', min: 20, max: 100 }
+  ];
+  buckets.forEach(b => {
+    const br = systemReviews.filter(r => { const e = parseFloat(r.edge); return e >= b.min && e < b.max; });
+    if (br.length >= 2) {
+      const wins = br.filter(r => r.result === 'WIN').length;
+      const wr = Math.round(wins / br.length * 100);
+      const pl = br.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
+      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(b.label + ' edge'));
+      if (!existing) {
+        newLearnings.push({
+          id: Date.now() + Math.random(),
+          date: today,
+          pattern: `${b.label} edge bucket: ${wr}% win rate, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L across ${br.length} bets`,
+          data: br.map(r => `${r.game} ${r.pick} ${r.result} CLV:${r.clv}`).join(' | '),
+          app: pl > 0
+            ? `${b.label} edge plays are profitable. Continue sizing per rules.`
+            : `${b.label} edge plays are losing. Review whether edge calculation is accurate for this bucket.`,
+          conf: 'provisional',
+          auto: true
+        });
+      }
+    }
+  });
+
+  // PATTERN 3: Market type performance
+  ['Total','ML','Spread','Parlay'].forEach(mkt => {
+    const mr = systemReviews.filter(r => r.market === mkt);
+    if (mr.length >= 2) {
+      const wins = mr.filter(r => r.result === 'WIN').length;
+      const pl = mr.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
+      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(mkt + ' market'));
+      if (!existing) {
+        newLearnings.push({
+          id: Date.now() + Math.random(),
+          date: today,
+          pattern: `${mkt} market: ${wins}-${mr.length-wins} W-L, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`,
+          data: mr.map(r => `${r.game} ${r.result} CLV:${r.clv}`).join(' | '),
+          app: pl > 0 ? `${mkt} is profitable market. Process is working.` : `${mkt} is losing. Check if edge source is solid for this market type.`,
+          conf: 'provisional',
+          auto: true
+        });
+      } else {
+        // Update existing auto-learning with new data
+        if (existing.auto) {
+          existing.pattern = `${mkt} market: ${wins}-${mr.length-wins} W-L, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`;
+          existing.data = mr.map(r => `${r.game} ${r.result} CLV:${r.clv}`).join(' | ');
+          existing.app = pl > 0 ? `${mkt} is profitable. Process is working.` : `${mkt} is losing. Check edge source for this market type.`;
+          existing.conf = mr.length >= 6 ? 'confirmed' : 'provisional';
+        }
+      }
+    }
+  });
+
+  // PATTERN 4: Sharp money conflict — flag when sharp movement was noted and result was loss
+  const sharpLosses = systemReviews.filter(r =>
+    r.result === 'LOSS' && r.lesson && /sharp|movement|moved/i.test(r.lesson)
+  );
+  if (sharpLosses.length >= 1) {
+    const existing = state.learnings.find(l => l.pattern && l.pattern.includes('sharp movement'));
+    if (!existing) {
+      newLearnings.push({
+        id: Date.now() + Math.random(),
+        date: today,
+        pattern: `Sharp movement against pick preceded ${sharpLosses.length} loss${sharpLosses.length>1?'es':''}`,
+        data: sharpLosses.map(r => `${r.game} — ${r.lesson}`).join(' | '),
+        app: 'Rule 20 is non-negotiable. Any sharp movement 1+ point against pick within 2hrs = eliminate. This has already cost real money.',
+        conf: sharpLosses.length >= 2 ? 'confirmed' : 'provisional',
+        auto: true
+      });
+    }
+  }
+
+  if (newLearnings.length > 0) {
+    state.learnings.push(...newLearnings);
+    saveState();
+    renderLearnings();
+  }
+}
+
+// ============================================================
+// SYSTEM PROMPT — ALL 55 RULES + REAL LEARNING CONTEXT
+// This is what Claude actually sees on every message.
+// Learning log, failure log, and CLV patterns are pulled
+// from real state — not fabricated, not summarized by Claude.
 // ============================================================
 function buildSystemPrompt() {
   const br = state.bankroll;
   const budget = Math.floor(br * state.dailyPct / 100);
   const atRisk = calcAtRisk();
   const remain = Math.max(0, budget - atRisk);
-  const activeBets = state.bets.filter(b => b.status === 'placed' || b.status === 'early').map(b => `${b.game} | ${b.pick} | $${b.stake} | ${b.edge}`).join('\n') || 'None';
-  const watchList = (state.watchList||[]).join('\n') || 'None';
-  const recentReviews = state.reviews.slice(-3).map(r => `${r.game} ${r.pick} ${r.result} CLV:${r.clv} P&L:${r.pl}`).join('\n') || 'None';
 
-  return `You are EDGE MODEL v3, a professional sports betting model. You operate with complete discipline, zero bias, and strict adherence to all 55 rules below. Every output leads with a SYSTEM BLOCK using === dividers, then plain words.
+  // Active bets
+  const activeBets = state.bets
+    .filter(b => b.status === 'placed' || b.status === 'early')
+    .map(b => `  ${b.game} | ${b.pick} | $${b.stake} | ${b.edge} | ${b.source||'system'}`)
+    .join('\n') || '  None';
 
-CURRENT STATE:
+  // Watch list
+  const watchList = (state.watchList||[]).map(w => '  ' + w).join('\n') || '  None';
+
+  // Full system review history — only system picks
+  const systemReviews = state.reviews.filter(r => r.source !== 'my');
+  const totalPL = systemReviews.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
+  const wins = systemReviews.filter(r => r.result === 'WIN').length;
+  const losses = systemReviews.filter(r => r.result === 'LOSS').length;
+  const clvPos = systemReviews.filter(r => parseFloat(r.clv) > 0).length;
+
+  const recentReviews = systemReviews.slice(-6).map(r =>
+    `  ${r.game} | ${r.pick} | ${r.result} | CLV:${r.clv} | P&L:${r.pl} | Edge:${r.edge} | ${r.lesson}`
+  ).join('\n') || '  None';
+
+  // Confirmed learnings from the learning log — ALL of them, not summarized
+  const confirmedLearnings = state.learnings
+    .filter(l => l.conf === 'confirmed' || l.conf === 'rule')
+    .map(l => `  [${l.conf.toUpperCase()}] ${l.pattern} — ${l.app}`)
+    .join('\n') || '  None yet';
+
+  const provisionalLearnings = state.learnings
+    .filter(l => l.conf === 'provisional')
+    .map(l => `  [PROVISIONAL] ${l.pattern} — ${l.app}`)
+    .join('\n') || '  None yet';
+
+  // Failure log — ALL entries, so the model knows exactly what went wrong
+  const failures = state.failures
+    .map(f => `  [${f.date}] ${f.desc} | Cost: ${f.cost} | Fix: ${f.prev}`)
+    .join('\n') || '  None logged';
+
+  // ROI by league from real data
+  const leagueROI = ['NHL','NBA','NCAA'].map(lg => {
+    const lr = systemReviews.filter(r => r.league === lg);
+    const lpl = lr.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
+    return lr.length ? `  ${lg}: ${lr.filter(r=>r.result==='WIN').length}-${lr.filter(r=>r.result==='LOSS').length} W-L | ${lpl>=0?'+':''}$${lpl.toFixed(0)} P&L` : `  ${lg}: No results yet`;
+  }).join('\n');
+
+  // Edge bucket performance from real data
+  const bucketROI = [[3,5],[5,10],[10,20],[20,100]].map(([min,max]) => {
+    const er = systemReviews.filter(r => { const e=parseFloat(r.edge); return e>=min&&e<max; });
+    const epl = er.reduce((s,r) => s+(parseFloat(r.pl)||0), 0);
+    return er.length ? `  ${min}-${max<100?max+'%':'20%+'}: ${er.filter(r=>r.result==='WIN').length}W-${er.filter(r=>r.result==='LOSS').length}L | ${epl>=0?'+':''}$${epl.toFixed(0)}` : `  ${min}-${max<100?max+'%':'20%+'}: No results`;
+  }).join('\n');
+
+  return `You are EDGE MODEL v3, a professional sports betting model. You operate with complete discipline, zero bias, and strict adherence to all 56 rules below. Every output leads with a SYSTEM BLOCK using === dividers, then plain words.
+
+CRITICAL INTEGRITY RULE: Never claim a capability that is not verifiable in the system. Never say "lessons integrated" unless they are in this prompt. Never say "bankroll updated" unless you output an ACTION_UPDATE_BANKROLL tag. Every statement must be true and verifiable.
+
+═══════════════════════════════════════
+CURRENT STATE
+═══════════════════════════════════════
 Bankroll: $${br.toFixed(2)}
-Daily Budget: $${budget}
+Daily Budget (35%): $${budget}
 At Risk: $${atRisk}
 Remaining: $${remain}
+System Record: ${wins}W-${losses}L | Total P&L: ${totalPL>=0?'+':''}$${totalPL.toFixed(2)}
+CLV Positive Rate: ${systemReviews.length ? Math.round(clvPos/systemReviews.length*100)+'%' : '—'}
+
 Active Bets:
 ${activeBets}
+
 Watch List:
 ${watchList}
-Recent Results:
+
+═══════════════════════════════════════
+RECENT RESULTS (SYSTEM PICKS ONLY)
+These are real results from the review log — not summaries.
+═══════════════════════════════════════
 ${recentReviews}
 
-THE 55 RULES:
+═══════════════════════════════════════
+ROI BY LEAGUE (SYSTEM PICKS ONLY)
+═══════════════════════════════════════
+${leagueROI}
 
+═══════════════════════════════════════
+ROI BY EDGE BUCKET (SYSTEM PICKS ONLY)
+═══════════════════════════════════════
+${bucketROI}
+
+═══════════════════════════════════════
+CONFIRMED LEARNINGS
+These are real patterns from actual results. Apply them in picks.
+═══════════════════════════════════════
+${confirmedLearnings}
+
+═══════════════════════════════════════
+PROVISIONAL LEARNINGS (2+ data points, not yet confirmed)
+Apply with caution — not enough data to be rule-level.
+═══════════════════════════════════════
+${provisionalLearnings}
+
+═══════════════════════════════════════
+FAILURE LOG — WHAT HAS GONE WRONG
+Every failure here already cost real money. Never repeat these.
+═══════════════════════════════════════
+${failures}
+
+═══════════════════════════════════════
+THE 56 RULES
+═══════════════════════════════════════
 RULE 1: System block + plain words on every output — no exceptions.
 RULE 2: Picks = RECOMMENDED only. PLACED = confirmed by user. Bankroll only moves on RESULT. Edge % only. Stake sized from edge %.
 RULE 3: Time pulled first. Games started before current time = ELIMINATED.
@@ -2187,28 +2404,26 @@ RULE 52: Free throw rate — supporting T2 (NCAA).
 RULE 53: Public narrative bias flag.
 RULE 54: Travel 2+ time zones in 24hrs = fatigue flag.
 RULE 55: Emotional spots — pull ATS in those specific situations only.
+RULE 56 [NEW — INTEGRITY]: Never claim a system capability that is not verifiable in the code. Never say "lessons integrated" unless they appear in this prompt. Never say the app will update unless an ACTION tag is output. Every statement made to the user must be true and checkable. This rule exists because the model previously lied about integrating lessons. It will not happen again.
 
-When confirming results, always output the post-game review format from Rule 27 then output a structured action so the app can update itself. Use these action tags at the END of your response — the app parses them directly:
-
+═══════════════════════════════════════
+ACTION TAGS — HOW TO UPDATE THE APP
+Output these at the END of your response. The app executes them directly.
+═══════════════════════════════════════
 ACTION_LOG_BET: game="GAME" | pick="PICK" | odds="ODDS" | stake=NUMBER | edge="EDGE%" | status="won/lost/placed" | league="NHL/NBA/NCAA" | market="Total/ML/Spread/Parlay" | source="system/my" | pnl=NUMBER
 ACTION_UPDATE_BANKROLL: amount=NUMBER
 ACTION_LOG_REVIEW: game="GAME" | pick="PICK" | stake=NUMBER | betLine="LINE" | mktLine="LINE" | closeLine="LINE" | clv="CLV" | result="WIN/LOSS/PUSH" | pl=NUMBER | league="NHL/NBA/NCAA" | market="TYPE" | edge="EDGE%" | source="system/my" | lesson="LESSON"
 ACTION_LOG_PASS: game="GAME" | decision="bet/pass/consider" | reason="REASON"
 ACTION_LOG_FAILURE: desc="DESC" | cost="COST" | prev="PREVENTION"
 ACTION_WATCH: game="GAME — NOTE"
+ACTION_LOG_LEARNING: pattern="PATTERN" | data="DATA" | app="APPLICATION" | conf="provisional/confirmed"
 
 Rules for actions:
 - Only output actions for things the user has confirmed happened or explicitly asked you to log
 - Never fabricate results — only log what the user tells you
-- You can output multiple action tags in one response
-- Actions execute silently — do not explain them in plain text, just include them at the end
-- App changes (new features, UI fixes) are handled externally — never promise to change the UI
-
-Example: User says "CBJ/NYI UNDER 6 won"
-You output the full post-game review, then at the end:
-ACTION_LOG_REVIEW: game="CBJ vs NYI" | pick="UNDER 6" | stake=15 | betLine="6 -102" | mktLine="6" | closeLine="5.5" | clv="+0.5" | result="WIN" | pl=14.71 | league="NHL" | market="Total" | edge="17.6%" | source="system" | lesson="Greaves was locked in. Line moved toward under pre-game — positive CLV confirmed edge was real."
-ACTION_UPDATE_BANKROLL: amount=${(state.bankroll + 14.71).toFixed(2)}`;
-
+- Multiple action tags allowed per response
+- Actions execute silently — the app shows a green confirmation, do not describe them in prose
+- App code changes are handled externally — never promise UI changes`;
 }
 
 // ============================================================
@@ -2536,6 +2751,8 @@ function executeActions(reply) {
           if (bet) bet.status = review.result === 'WIN' ? 'won' : review.result === 'LOSS' ? 'lost' : 'push';
           feedback.push(`✓ Review logged: ${review.game} ${review.result} ${review.pl}`);
           changed = true;
+          // Auto-learn from new result
+          setTimeout(autoLearn, 100);
         }
       }
 
@@ -2559,6 +2776,26 @@ function executeActions(reply) {
         });
         feedback.push(`✓ Failure logged`);
         changed = true;
+      }
+
+      else if (line.startsWith('ACTION_LOG_LEARNING:')) {
+        const f = s => parseActionField(line, s);
+        const pattern = f('pattern');
+        if (pattern) {
+          // Don't duplicate
+          const exists = state.learnings.find(l => l.pattern === pattern);
+          if (!exists) {
+            state.learnings.push({
+              id: Date.now() + Math.random(),
+              date: new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+              pattern, data: f('data'), app: f('app'),
+              conf: f('conf') || 'provisional',
+              auto: false
+            });
+            feedback.push(`✓ Learning logged: ${pattern.slice(0,60)}`);
+            changed = true;
+          }
+        }
       }
 
       else if (line.startsWith('ACTION_WATCH:')) {
@@ -2619,6 +2856,9 @@ function init() {
   // Live scores — fetch immediately then every 30 seconds
   fetchAllScores();
   setInterval(() => { fetchAllScores(); }, 30000);
+
+  // Run auto-learn on existing data immediately
+  setTimeout(autoLearn, 500);
 }
 
 init();
