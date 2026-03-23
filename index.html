@@ -948,9 +948,32 @@ init();
 // Intentionally isolated from betting/prediction logic.
 (function () {
   const CHAT_COLLAPSE_KEY = "edge_model_ui_chat_collapsed_v1";
+  const MOBILE_BREAKPOINT_QUERY = "(max-width: 900px)";
 
   function getMainLayout() {
     return document.querySelector(".main");
+  }
+
+  function isMobileView() {
+    return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+  }
+
+  function injectSidebarMotionStyles() {
+    if (document.getElementById("ui-sidebar-motion-overrides")) return;
+    const style = document.createElement("style");
+    style.id = "ui-sidebar-motion-overrides";
+    style.textContent = [
+      ".main{transition:grid-template-columns .34s cubic-bezier(.22,1,.36,1);}",
+      ".sidebar{transition:transform .42s cubic-bezier(.22,1,.36,1),box-shadow .28s ease;will-change:transform;}",
+      "@media (max-width:900px){",
+      "  .main{grid-template-columns:1fr !important;}",
+      "  .sidebar-wrap{position:fixed;top:92px;right:0;bottom:0;width:min(92vw,380px);height:calc(100vh - 92px);z-index:350;pointer-events:none;}",
+      "  .sidebar-wrap .sidebar-toggle{left:auto;right:calc(100% - 1px);top:24px;transform:none;pointer-events:auto;}",
+      "  .sidebar-wrap .sidebar{position:absolute;top:0;right:0;width:min(92vw,380px);height:100%;box-shadow:-16px 0 30px rgba(0,0,0,.42);pointer-events:auto;}",
+      "  .sidebar-wrap .sidebar.collapsed{transform:translateX(calc(100% + 1px));box-shadow:none;}",
+      "}",
+    ].join("");
+    document.head.appendChild(style);
   }
 
   function applySidebarState(collapsed) {
@@ -961,7 +984,11 @@ init();
 
     sidebar.classList.toggle("collapsed", collapsed);
     arrow.textContent = collapsed ? "‹" : "›";
-    main.style.gridTemplateColumns = collapsed ? "1fr 28px" : "1fr 380px";
+    if (isMobileView()) {
+      main.style.gridTemplateColumns = "1fr";
+    } else {
+      main.style.gridTemplateColumns = collapsed ? "1fr 28px" : "1fr 380px";
+    }
   }
 
   function hideAllTabs() {
@@ -1041,12 +1068,19 @@ init();
   });
 
   // Restore chat-panel collapsed state on load.
+  injectSidebarMotionStyles();
   const saved = localStorage.getItem(CHAT_COLLAPSE_KEY);
   if (saved === "1") {
     applySidebarState(true);
   } else {
     applySidebarState(false);
   }
+
+  window.addEventListener("resize", () => {
+    const sidebar = document.getElementById("chatSidebar");
+    if (!sidebar) return;
+    applySidebarState(sidebar.classList.contains("collapsed"));
+  });
 })();
 </script>
 
