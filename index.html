@@ -1099,6 +1099,23 @@ init();
     return typeof window.state === "object" && window.state !== null;
   }
 
+  function ensureStateCollections() {
+    if (!hasState()) return;
+    if (!state.dailyPicks || typeof state.dailyPicks !== "object") state.dailyPicks = {};
+    if (!Array.isArray(state.autoInsights)) state.autoInsights = [];
+    if (!Array.isArray(state.autoSettledBetIds)) state.autoSettledBetIds = [];
+    if (!Array.isArray(state.processedFinalEventIds)) state.processedFinalEventIds = [];
+    if (!state.teamStats || typeof state.teamStats !== "object") state.teamStats = {};
+  }
+
+  function getTodayKey() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
   function parsePercent(value) {
     if (value === null || value === undefined) return null;
     const n = parseFloat(String(value).replace("%", "").trim());
@@ -1187,6 +1204,25 @@ init();
     return { fraction: 0.2, mode: "normal", perf };
   }
 
+  function getAdaptivePolicy() {
+    const dyn = getDynamicKellyFraction();
+    const perf = dyn.perf || { n: 0, clvRate: null, roiPct: null };
+    let minEdgePct = 3;
+    if (perf.n >= 10) {
+      if ((Number.isFinite(perf.clvRate) && perf.clvRate < 45) || (Number.isFinite(perf.roiPct) && perf.roiPct < -5)) {
+        minEdgePct = 4;
+      } else if ((Number.isFinite(perf.clvRate) && perf.clvRate > 58) && (Number.isFinite(perf.roiPct) && perf.roiPct > 4)) {
+        minEdgePct = 2.5;
+      }
+    }
+    return {
+      minEdgePct,
+      kellyFraction: dyn.fraction,
+      kellyMode: dyn.mode,
+      perf,
+    };
+  }
+
   function isSystemPick(bet) {
     return !bet.source || bet.source === "system";
   }
@@ -1221,6 +1257,7 @@ init();
   function validateBetForPolicy(bet) {
     const errors = [];
     const warnings = [];
+    const policy = getAdaptivePolicy();
 
     const stake = parseFloat(bet.stake) || 0;
     const minBet = hasState() ? Number(state.minBet) || 10 : 10;
@@ -1241,8 +1278,8 @@ init();
     if (isSystemPick(bet)) {
       if (edgePct === null) {
         errors.push("System picks require an edge %.");
-      } else if (edgePct < 3) {
-        errors.push("System picks require >= 3% edge.");
+      } else if (edgePct < policy.minEdgePct) {
+        errors.push("System picks require >= " + policy.minEdgePct + "% edge.");
       }
     } else if (edgePct !== null && edgePct < 0) {
       warnings.push("Negative edge recorded on manual pick.");
@@ -1259,9 +1296,8 @@ init();
       const ev = expectedValuePerUnitStake(modelProb, amer);
       if (Number.isFinite(ev)) evPct = ev * 100;
       if (hasState()) {
-        const dyn = getDynamicKellyFraction();
-        riskMode = dyn.mode;
-        const k = fractionalKellyStake(Number(state.bankroll) || 0, modelProb, amer, dyn.fraction);
+        riskMode = policy.kellyMode;
+        const k = fractionalKellyStake(Number(state.bankroll) || 0, modelProb, amer, policy.kellyFraction);
         if (Number.isFinite(k)) kellyStake = k;
       }
       if (Number.isFinite(evPct) && evPct <= 0 && isSystemPick(bet)) {
@@ -1351,6 +1387,15 @@ init();
       }
 
       state.bets.push(bet);
+      persistDailyPicks([
+        {
+          game: bet.game,
+          pick: bet.pick,
+          odds: bet.odds,
+          edge: bet.edge,
+          league: bet.league,
+        },
+      ]);
       if (typeof saveState === "function") saveState();
       if (typeof updateDisplays === "function") updateDisplays();
       const form = document.getElementById("addBetForm");
@@ -1521,10 +1566,10 @@ init();
       const reviews = hasState() ? state.reviews || [] : [];
       const m = computePolicyImpactMetrics(reviews);
       const perf = getRecentSystemPerformance(30);
-      const dyn = getDynamicKellyFraction();
+      const policy = getAdaptivePolicy();
       const appendix =
         "\n\nDETERMINISTIC PROFITABILITY GUARDRAILS\n" +
-        "- Reject system picks below 3% edge.\n" +
+        "- Reject system picks below adaptive edge floor (currently " + policy.minEdgePct + "%).\n" +
         "- Block double exposure in same game+market when active bet exists.\n" +
         "- Respect min bet and remaining daily budget at entry.\n" +
         "- Include implied probability, model probability, EV%, and Kelly suggestion when odds are valid.\n" +
@@ -1545,7 +1590,7 @@ init();
         ", ROI " +
         (Number.isFinite(perf.roiPct) ? perf.roiPct.toFixed(1) + "%" : "—") +
         ", Kelly mode " +
-        dyn.mode +
+        policy.kellyMode +
         ").";
       return base + appendix;
     };
@@ -1609,22 +1654,86 @@ init();
     return out;
   }
 
+  function getTodayDailyPicks() {
+    ensureStateCollections();
+    const key = getTodayKey();
+    const picks = state.dailyPicks[key];
+    return Array.isArray(picks) ? picks : [];
+  }
+
+  function pickFingerprint(pick) {
+    return [
+      String(pick.game || "").trim().toUpperCase(),
+      String(pick.pick || "").trim().toUpperCase(),
+      String(pick.odds || "").trim().toUpperCase(),
+      String(pick.league || "").trim().toUpperCase(),
+    ].join("|");
+  }
+
+  function classifyPickConfidence(edgePct, evPct) {
+    if (Number.isFinite(edgePct) && Number.isFinite(evPct) && edgePct >= 10 && evPct >= 2) {
+      return { label: "HIGH CONVICTION", color: "var(--green)" };
+    }
+    if (Number.isFinite(edgePct) && Number.isFinite(evPct) && edgePct >= 3 && evPct > 0) {
+      return { label: "MODEL LIKES", color: "var(--blue)" };
+    }
+    return { label: "REVIEW", color: "var(--yellow)" };
+  }
+
+  function persistDailyPicks(newPicks) {
+    if (!hasState() || !Array.isArray(newPicks) || !newPicks.length) return getTodayDailyPicks();
+    ensureStateCollections();
+    const key = getTodayKey();
+    const existing = getTodayDailyPicks().slice();
+    const idxByKey = new Map(existing.map((p, i) => [pickFingerprint(p), i]));
+    newPicks.forEach((p) => {
+      const rec = {
+        id: Date.now() + Math.floor(Math.random() * 10000),
+        game: p.game || "",
+        pick: p.pick || "",
+        odds: p.odds || "",
+        edge: p.edge || "",
+        league: p.league || "",
+        createdAt: Date.now(),
+      };
+      const fp = pickFingerprint(rec);
+      if (idxByKey.has(fp)) {
+        existing[idxByKey.get(fp)] = Object.assign({}, existing[idxByKey.get(fp)], rec);
+      } else {
+        idxByKey.set(fp, existing.length);
+        existing.push(rec);
+      }
+    });
+    const keys = Object.keys(state.dailyPicks || {}).sort();
+    const keep = new Set(keys.slice(-7).concat([key]));
+    Object.keys(state.dailyPicks).forEach((k) => {
+      if (!keep.has(k)) delete state.dailyPicks[k];
+    });
+    state.dailyPicks[key] = existing.slice(-60);
+    if (typeof saveState === "function") saveState();
+    return state.dailyPicks[key];
+  }
+
   function renderParsedPicks(picks) {
     const container = document.getElementById("picksContainer");
-    if (!container || !Array.isArray(picks) || !picks.length) return;
+    if (!container) return;
+    const sourcePicks = Array.isArray(picks) && picks.length ? picks : getTodayDailyPicks();
+    if (!sourcePicks.length) return;
     const snap = getRemainingBudgetSnapshot() || { remaining: 0 };
     const bankroll = hasState() ? Number(state.bankroll) || 0 : 0;
 
-    const cards = picks.map((p) => {
+    const cards = sourcePicks.map((p) => {
       const edgePct = parsePercent(p.edge);
       const amer = parseAmericanOdds(p.odds);
       const implied = impliedProbabilityFromAmerican(amer);
       const modelProb = implied !== null && edgePct !== null ? Math.max(0.01, Math.min(0.99, implied + edgePct / 100)) : null;
-      const dyn = getDynamicKellyFraction();
-      const kelly = modelProb !== null ? fractionalKellyStake(bankroll, modelProb, amer, dyn.fraction) : null;
+      const policy = getAdaptivePolicy();
+      const kelly = modelProb !== null ? fractionalKellyStake(bankroll, modelProb, amer, policy.kellyFraction) : null;
       const recStake = Number.isFinite(kelly) ? Math.max(hasState() ? Number(state.minBet) || 10 : 10, Math.min(kelly, snap.remaining)) : null;
       const tier = edgePct !== null && edgePct >= 10 ? "t1" : "t2";
       const ev = modelProb !== null ? expectedValuePerUnitStake(modelProb, amer) : null;
+      const evPct = Number.isFinite(ev) ? ev * 100 : null;
+      const conf = classifyPickConfidence(edgePct, evPct);
       return (
         '<div class="pick-card ' + tier + '">' +
         '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px">' +
@@ -1635,6 +1744,7 @@ init();
         '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">Odds ' + p.odds + "</span>" +
         '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || "—") + "</span>" +
         '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((Number.isFinite(ev) && ev > 0) ? "var(--green)" : "var(--yellow)") + '">EV ' + (Number.isFinite(ev) ? (ev * 100).toFixed(2) + "%" : "—") + "</span>" +
+        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + conf.color + '">' + conf.label + "</span>" +
         "</div>" +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
         '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">Suggested stake: ' + (Number.isFinite(recStake) ? "$" + recStake.toFixed(0) : "—") + "</div>" +
@@ -1642,15 +1752,15 @@ init();
         "</div></div>"
       );
     });
-    container.innerHTML = cards.join("");
+    container.innerHTML =
+      '<div class="alert alert-info" style="margin-bottom:10px">Daily picks auto-synced. Confidence is model-derived from edge + EV (not a guarantee).</div>' +
+      cards.join("");
     container.querySelectorAll("[data-pickfill]").forEach((btn) => {
       btn.addEventListener("click", () => {
         try {
           const payload = JSON.parse(decodeURIComponent(btn.getAttribute("data-pickfill") || ""));
           openBetFormWithPrefill(payload);
-        } catch (err) {
-          // no-op on malformed payload
-        }
+        } catch (err) {}
       });
     });
   }
@@ -1726,6 +1836,246 @@ init();
       ensureBetAssistPanel();
       refreshBetAssist();
     };
+  }
+
+  function allScoreGames() {
+    if (typeof espnScores === "undefined" || !espnScores) return [];
+    return []
+      .concat(Array.isArray(espnScores.nhl) ? espnScores.nhl : [])
+      .concat(Array.isArray(espnScores.nba) ? espnScores.nba : [])
+      .concat(Array.isArray(espnScores.ncaa) ? espnScores.ncaa : []);
+  }
+
+  function normalizeAbbr(v) {
+    return String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
+  }
+
+  function parseGameAbbrTokens(gameText) {
+    const tokens = String(gameText || "").toUpperCase().match(/[A-Z]{2,4}/g) || [];
+    const stop = new Set(["OVER", "UNDER", "ML", "VS", "PARLAY", "TOTAL", "SPREAD"]);
+    return tokens.filter((t) => !stop.has(t));
+  }
+
+  function matchFinalGameForBet(bet) {
+    const finals = allScoreGames().filter((g) => g && g.status === "closed");
+    if (!finals.length) return null;
+    const tokens = parseGameAbbrTokens(bet.game);
+    return finals.find((g) => {
+      const away = normalizeAbbr(g.away);
+      const home = normalizeAbbr(g.home);
+      return tokens.includes(away) && tokens.includes(home);
+    }) || null;
+  }
+
+  function evaluateBetResultFromGame(bet, game) {
+    if (!bet || !game) return null;
+    const pick = String(bet.pick || "").toUpperCase();
+    const awayScore = Number(game.scoreAway);
+    const homeScore = Number(game.scoreHome);
+    if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return null;
+    const total = awayScore + homeScore;
+
+    const totalMatch = pick.match(/\b(OVER|UNDER)\s*([0-9]+(?:\.[0-9]+)?)/i);
+    if (totalMatch) {
+      const dir = totalMatch[1].toUpperCase();
+      const line = parseFloat(totalMatch[2]);
+      if (!Number.isFinite(line)) return null;
+      if (Math.abs(total - line) < 0.001) return "push";
+      if (dir === "OVER") return total > line ? "won" : "lost";
+      if (dir === "UNDER") return total < line ? "won" : "lost";
+    }
+
+    const mlMatch = pick.match(/\b([A-Z]{2,4})\s*ML\b/i);
+    if (mlMatch) {
+      const side = normalizeAbbr(mlMatch[1]);
+      const away = normalizeAbbr(game.away);
+      const home = normalizeAbbr(game.home);
+      const winner = awayScore === homeScore ? "" : awayScore > homeScore ? away : home;
+      if (!winner) return "push";
+      return side === winner ? "won" : "lost";
+    }
+
+    return null;
+  }
+
+  function updateTeamStatsFromFinalGame(game) {
+    if (!hasState() || !game) return false;
+    ensureStateCollections();
+    const eventId = String(game.eventId || "");
+    if (!eventId) return false;
+    if (state.processedFinalEventIds.includes(eventId)) return false;
+    const away = normalizeAbbr(game.away);
+    const home = normalizeAbbr(game.home);
+    const awayScore = Number(game.scoreAway);
+    const homeScore = Number(game.scoreHome);
+    if (!away || !home || !Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return false;
+
+    function upsert(team, scored, allowed, won) {
+      const rec = state.teamStats[team] || { gp: 0, wins: 0, losses: 0, scored: 0, allowed: 0 };
+      rec.gp += 1;
+      rec.scored += scored;
+      rec.allowed += allowed;
+      if (won) rec.wins += 1;
+      else rec.losses += 1;
+      state.teamStats[team] = rec;
+    }
+
+    upsert(away, awayScore, homeScore, awayScore > homeScore);
+    upsert(home, homeScore, awayScore, homeScore > awayScore);
+    state.processedFinalEventIds.push(eventId);
+    if (state.processedFinalEventIds.length > 500) {
+      state.processedFinalEventIds = state.processedFinalEventIds.slice(-500);
+    }
+    return true;
+  }
+
+  function addAutoReviewFromSettlement(bet, result, game) {
+    if (!hasState() || !bet || !SETTLED_STATUSES.has(result)) return false;
+    ensureStateCollections();
+    const betId = String(bet.id);
+    if (state.autoSettledBetIds.includes(betId)) return false;
+    const existing = (state.reviews || []).some((r) => String(r.autoBetId || "") === betId);
+    if (existing) return false;
+    const total = Number(game.scoreAway) + Number(game.scoreHome);
+    const plNum = pnlFromResult(bet, result);
+    const autoReview = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      autoBetId: betId,
+      game: bet.game,
+      pick: bet.pick,
+      stake: parseFloat(bet.stake) || 0,
+      betLine: String(bet.odds || "—"),
+      mktLine: "—",
+      closeLine: "Final " + String(game.away || "?") + " " + String(game.scoreAway || 0) + " - " + String(game.home || "?") + " " + String(game.scoreHome || 0) + " (Total " + total + ")",
+      clv: "—",
+      result: String(result || "").toUpperCase(),
+      pl: (plNum >= 0 ? "+" : "") + plNum.toFixed(2),
+      league: bet.league || game.league || "—",
+      market: bet.market || "—",
+      edge: bet.edge || "—",
+      source: bet.source || "system",
+      lesson: "[AUTO] Settled from confirmed final score feed.",
+      bankrollApplied: false,
+      auto: true,
+    };
+    state.reviews.push(autoReview);
+    state.autoSettledBetIds.push(betId);
+    if (state.autoSettledBetIds.length > 800) {
+      state.autoSettledBetIds = state.autoSettledBetIds.slice(-800);
+    }
+    return true;
+  }
+
+  function refreshAutoLearnings() {
+    if (!hasState()) return;
+    ensureStateCollections();
+    const system = (state.reviews || []).filter((r) => r && r.source !== "my");
+    if (system.length < 8) return;
+    const recent = system.slice(-40);
+    const win = recent.filter((r) => String(r.result || "").toUpperCase() === "WIN").length;
+    const wr = (win / recent.length) * 100;
+    const clvPos = recent.filter((r) => (parseFloat(r.clv) || 0) > 0);
+    const clvNeg = recent.filter((r) => (parseFloat(r.clv) || 0) <= 0);
+    const clvPosWr = clvPos.length ? (clvPos.filter((r) => String(r.result || "").toUpperCase() === "WIN").length / clvPos.length) * 100 : null;
+    const clvNegWr = clvNeg.length ? (clvNeg.filter((r) => String(r.result || "").toUpperCase() === "WIN").length / clvNeg.length) * 100 : null;
+    const highEdge = recent.filter((r) => (parsePercent(r.edge) || 0) >= 8);
+    const lowEdge = recent.filter((r) => (parsePercent(r.edge) || 0) < 8 && parsePercent(r.edge) !== null);
+    const highPl = highEdge.reduce((s, r) => s + (parseFloat(r.pl) || 0), 0);
+    const lowPl = lowEdge.reduce((s, r) => s + (parseFloat(r.pl) || 0), 0);
+    const hash = JSON.stringify({
+      n: recent.length,
+      wr: round2(wr),
+      clvPosWr: round2(clvPosWr || 0),
+      clvNegWr: round2(clvNegWr || 0),
+      highPl: round2(highPl),
+      lowPl: round2(lowPl),
+    });
+    if (state.autoLearningHash === hash) return;
+    state.autoLearningHash = hash;
+
+    const perf = getRecentSystemPerformance(30);
+    state.autoInsights = [
+      "Recent system WR: " + wr.toFixed(1) + "% over " + recent.length + " decisions.",
+      "CLV+ WR " + (Number.isFinite(clvPosWr) ? clvPosWr.toFixed(1) + "%" : "—") + " vs CLV- WR " + (Number.isFinite(clvNegWr) ? clvNegWr.toFixed(1) + "%" : "—") + ".",
+      "High-edge (>=8%) P&L $" + highPl.toFixed(2) + " vs lower-edge P&L $" + lowPl.toFixed(2) + ".",
+      "Adaptive policy now uses edge floor " + getAdaptivePolicy().minEdgePct + "% and Kelly mode " + getAdaptivePolicy().kellyMode + ".",
+      "Recent CLV+ rate " + (Number.isFinite(perf.clvRate) ? perf.clvRate.toFixed(1) + "%" : "—") + ".",
+    ];
+
+    const autoEntry = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      pattern: "[AUTO] Live model update from confirmed outcomes",
+      data: state.autoInsights.slice(0, 3).join(" "),
+      app: "Apply adaptive edge floor and stake mode until next confirmed batch.",
+      conf: recent.length >= 20 ? "confirmed" : "provisional",
+    };
+    state.learnings = Array.isArray(state.learnings) ? state.learnings : [];
+    state.learnings.push(autoEntry);
+    if (state.learnings.length > 200) state.learnings = state.learnings.slice(-200);
+    if (typeof renderLearnings === "function") renderLearnings();
+  }
+
+  function runAutoSettlementFromScores() {
+    if (!hasState() || !Array.isArray(state.bets)) return;
+    ensureStateCollections();
+    const active = state.bets.filter((b) => b && (b.status === "placed" || b.status === "early" || b.status === "pending"));
+    if (!active.length) {
+      // Still learn from finalized live team stats.
+      allScoreGames().filter((g) => g && g.status === "closed").forEach((g) => updateTeamStatsFromFinalGame(g));
+      return;
+    }
+    let changed = false;
+    const finals = allScoreGames().filter((g) => g && g.status === "closed");
+    finals.forEach((g) => {
+      if (updateTeamStatsFromFinalGame(g)) changed = true;
+    });
+    active.forEach((bet) => {
+      const game = matchFinalGameForBet(bet);
+      if (!game) return;
+      const result = evaluateBetResultFromGame(bet, game);
+      if (!result) return;
+      if (typeof window.updateBetResult === "function") window.updateBetResult(bet.id, result);
+      if (addAutoReviewFromSettlement(bet, result, game)) changed = true;
+    });
+    if (changed) {
+      refreshAutoLearnings();
+      if (typeof saveState === "function") saveState();
+      if (typeof renderReviews === "function") renderReviews();
+      if (typeof updateDisplays === "function") updateDisplays();
+    }
+  }
+
+  function startLiveScoreSyncLoop() {
+    if (window.__edgeLiveSyncLoopStarted) return;
+    if (typeof setTimeout !== "function") return;
+    window.__edgeLiveSyncLoopStarted = true;
+    let inFlight = false;
+    async function tick() {
+      const wait = document.visibilityState === "visible" ? 1000 : 5000;
+      if (inFlight) {
+        setTimeout(tick, wait);
+        return;
+      }
+      inFlight = true;
+      try {
+        if (typeof window.fetchAllScores === "function") {
+          await window.fetchAllScores();
+        }
+        runAutoSettlementFromScores();
+        refreshAutoLearnings();
+        const s = document.getElementById("scoreStatus");
+        if (s && !String(s.textContent || "").includes("Live sync 1s")) {
+          s.textContent = String(s.textContent || "Live").trim() + " · Live sync 1s";
+        }
+      } catch (err) {
+        // Keep loop alive on network/transient errors.
+      } finally {
+        inFlight = false;
+        setTimeout(tick, wait);
+      }
+    }
+    tick();
   }
 
   function patchTryLocalCommand() {
@@ -1813,6 +2163,15 @@ init();
         bet.kellyStake = gate.diagnostics.suggestedKellyStake;
 
         state.bets.push(bet);
+        persistDailyPicks([
+          {
+            game: bet.game,
+            pick: bet.pick,
+            odds: bet.odds,
+            edge: bet.edge,
+            league: bet.league,
+          },
+        ]);
 
         if (SETTLED_STATUSES.has(bet.status)) {
           const pnl = pnlFromResult(bet, bet.status);
@@ -1861,7 +2220,10 @@ init();
 
       if (String(role) === "assistant") {
         const picks = extractPicksFromText(text);
-        if (picks.length) renderParsedPicks(picks);
+        if (picks.length) {
+          const merged = persistDailyPicks(picks);
+          renderParsedPicks(merged);
+        }
       }
     };
   }
@@ -1872,6 +2234,7 @@ init();
     window.updateDisplays = function updateDisplaysPatched() {
       original();
       renderPolicyImpact();
+      renderParsedPicks();
     };
   }
 
@@ -1883,8 +2246,10 @@ init();
     removeVigTwoWay,
     expectedValuePerUnitStake,
     fractionalKellyStake,
+    getAdaptivePolicy,
     validateBetForPolicy,
     computePolicyImpactMetrics,
+    runAutoSettlementFromScores,
   };
 
   patchAddBet();
@@ -1895,7 +2260,12 @@ init();
   patchAppendMsg();
   patchShowAddBetForm();
   patchUpdateDisplaysHook();
+  ensureStateCollections();
   ensureBetAssistPanel();
+  renderParsedPicks();
+  runAutoSettlementFromScores();
+  refreshAutoLearnings();
+  startLiveScoreSyncLoop();
   renderPolicyImpact();
 })();
 </script>
