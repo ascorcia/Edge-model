@@ -102,6 +102,8 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'Never fabricate injuries, odds, game times, line movement, or results', 'no fabrication rule');
   mustContain(html, 'data-pick-game-group', 'picks grouped by game');
   mustContain(html, 'current game-time sync active', 'picks current time sync status');
+  mustContain(html, 'edge_live_leader_v1', 'live sync leader key');
+  mustContain(html, 'window.__edgeSidebarToggleInstalled', 'sidebar duplicate guard');
 
   // Critical system/log functions still present
   [
@@ -129,6 +131,7 @@ function checkCoreFeatures(html, dom) {
     '_gameClock',
     '_gameStartTs',
     'safeText',
+    '&quot;Run today\'s card',
   ].forEach((needle) => mustContain(html, needle, `profitability marker ${needle}`));
 
   pass('core feature checks');
