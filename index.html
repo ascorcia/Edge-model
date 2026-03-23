@@ -925,6 +925,7 @@ function indexESPNGames(data, league) {
       home:home.team?.abbreviation,
       awayFull:away.team?.displayName,
       homeFull:home.team?.displayName,
+      startTs: Date.parse(ev.date) || 0,
       awayLogo:away.team?.logo||'',
       homeLogo:home.team?.logo||'',
       awayTeamId:away.team?.id||'',
@@ -2146,6 +2147,8 @@ function buildSystemPrompt() {
   return `You are EDGE MODEL v4. Complete discipline. Zero bias. All 57 rules enforced on every output. Every output leads with a SYSTEM BLOCK.
 
 CRITICAL: Never claim a capability not verifiable in code. Never say "bankroll updated" without ACTION tag.
+CRITICAL: Never fabricate injuries, odds, game times, line movement, or results. If data is missing, say "unknown" and mark it as needing verification.
+CRITICAL: Never use guarantee language ("lock", "can't lose", "guaranteed", "free money", "all in"). Picks are recommendations only.
 
 CURRENT STATE
 Bankroll: $${br.toFixed(2)} | Budget: $${budget} | At Risk: $${atRisk} | Remaining: $${remain}
@@ -2171,7 +2174,12 @@ ${provisionalL}
 FAILURES — NEVER REPEAT:
 ${failures}
 
-KEY RULES: Min 3% edge. Daily budget 35% bankroll. Parlay only if 2 independent legs clear 3%. CLV is primary metric. theScore only for NHL goalies. Rule 57: season phase checked BEFORE edge calculation on every pick.`;
+KEY RULES: Min 3% edge. Daily budget 35% bankroll. Parlay only if 2 independent legs clear 3%. CLV is primary metric. theScore only for NHL goalies. Rule 57: season phase checked BEFORE edge calculation on every pick.
+
+CARD OUTPUT FORMAT (required for every recommended pick):
+GAME: AWAY vs HOME | BET: <market + side/total> | ODDS: <american odds> | EDGE: <x.x%> | STAKE: <$amount>
+
+Only output picks that map to current live/scheduled scoreboard games. Never output slate-only placeholders as final picks.`;
 }
 
 async function sendChat() {
@@ -2346,30 +2354,120 @@ init();
     return BIAS_PRESSURE_RE.test(String(text || ''));
   }
 
+  function escapeRegExp(text) {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function lineMentionsTeam(lineUpper, teamText) {
+    const t = String(teamText || '').trim().toUpperCase();
+    if (!t) return false;
+    if (t.length <= 4) {
+      const re = new RegExp('\\b' + escapeRegExp(t) + '\\b');
+      return re.test(lineUpper);
+    }
+    if (lineUpper.indexOf(t) >= 0) return true;
+    const words = t.split(/\s+/).filter(function (w) { return w.length >= 4; });
+    if (!words.length) return false;
+    return words.every(function (w) { return lineUpper.indexOf(w) >= 0; });
+  }
+
+  function resolveGameFromLine(line) {
+    const u = String(line || '').toUpperCase();
+    if (!u) return null;
+    const games = getAllScoreGames();
+    for (let i = 0; i < games.length; i += 1) {
+      const g = games[i] || {};
+      const awayHit = lineMentionsTeam(u, g.away) || lineMentionsTeam(u, g.awayFull);
+      const homeHit = lineMentionsTeam(u, g.home) || lineMentionsTeam(u, g.homeFull);
+      if (awayHit && homeHit) return g;
+    }
+    return null;
+  }
+
+  function sanitizeAssistantIntegrityText(text) {
+    let out = String(text || '');
+    let touched = false;
+    [
+      [/\bLOCK OF THE DAY\b/ig, 'HIGH CONVICTION'],
+      [/\bGUARANTEED?\b/ig, 'high-confidence (not guaranteed)'],
+      [/\bCAN['’]?T\s*LOSE\b/ig, 'high-confidence'],
+      [/\bFREE\s*MONEY\b/ig, 'positive EV spot'],
+      [/\bALL\s*IN\b/ig, 'sized bet'],
+      [/\bMUST\s*WIN\b/ig, 'higher-rated lean']
+    ].forEach(function (pair) {
+      const re = pair[0];
+      const to = pair[1];
+      if (re.test(out)) {
+        touched = true;
+        out = out.replace(re, to);
+      }
+    });
+    if (touched) {
+      out += '\n\n[Integrity Guardrail] Overconfident language removed. Picks are recommendations, never guarantees.';
+    }
+    return out;
+  }
+
+  function mergeCardLines(rawLines) {
+    const merged = [];
+    for (let i = 0; i < rawLines.length; i += 1) {
+      let line = rawLines[i];
+      const up = String(line || '').toUpperCase();
+      if (up.indexOf('GAME:') >= 0 && (i + 1) < rawLines.length) {
+        const next = String(rawLines[i + 1] || '');
+        if (/(?:^|\s)(BET|PICK)\s*:/.test(next.toUpperCase())) {
+          line = line + ' | ' + next;
+          i += 1;
+        }
+      }
+      merged.push(line);
+    }
+    return merged;
+  }
+
   function extractPicks(text) {
-    const lines = String(text || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    const rawLines = String(text || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    const lines = mergeCardLines(rawLines);
     const out = [];
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (/\bSLATE\b/i.test(line)) continue;
       if (hasBiasPressureLanguage(line)) continue;
+      const resolvedGame = resolveGameFromLine(line);
       const gm = line.match(/([A-Z]{2,4})\s*(?:@|vs\.?|v)\s*([A-Z]{2,4})/i);
-      const om = line.match(/([+-]\d{2,4}|EVEN|PK|PICK)/i);
-      if (!gm) continue;
+      const oddsByLabel = line.match(/\bODDS?\s*[:=]?\s*([+-]\d{2,4}|EVEN|PK|PICK)\b/i);
+      const om = oddsByLabel || line.match(/([+-]\d{2,4}|EVEN|PK|PICK)/i);
+      if (!gm && !resolvedGame) continue;
       const actionable = /(OVER|UNDER|ML|MONEYLINE|SPREAD|TOTAL|ALT|PARLAY|TEAM TOTAL)/i.test(line);
       if (!om && !actionable) continue;
-      const em = line.match(/(\d+(?:\.\d+)?)\s*%/i);
+      const em = line.match(/\bEDGE\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/i) || line.match(/(\d+(?:\.\d+)?)\s*%/i);
+      const sm = line.match(/\bSTAKE\s*[:=]?\s*\$?(\d+(?:\.\d+)?)/i);
+      const pickByLabel = line.match(/\b(?:BET|PICK)\s*:\s*([^|]+)/i);
       const up = line.toUpperCase();
-      let league = 'NHL';
-      if (up.indexOf('NBA') >= 0) league = 'NBA';
-      else if (up.indexOf('NCAA') >= 0) league = 'NCAA';
+      const away = gm ? gm[1].toUpperCase() : String(resolvedGame?.away || '').toUpperCase();
+      const home = gm ? gm[2].toUpperCase() : String(resolvedGame?.home || '').toUpperCase();
+      const gameText = (away || 'AWAY') + ' vs ' + (home || 'HOME');
+      const mappedGame = resolvedGame || findScoreContextForPick({ game: gameText });
+      let league = String(mappedGame?.league || '').toUpperCase();
+      if (!league) {
+        league = 'NHL';
+        if (up.indexOf('NBA') >= 0) league = 'NBA';
+        else if (up.indexOf('NCAA') >= 0) league = 'NCAA';
+      }
+      const pickText = String((pickByLabel && pickByLabel[1]) || line.replace(/^[-*•\d.)\s]*/, '')).trim();
       out.push({
         id: Date.now() + i,
-        game: gm[1].toUpperCase() + ' vs ' + gm[2].toUpperCase(),
-        pick: line.replace(/^[-*•]\s*/, ''),
+        game: gameText,
+        pick: pickText,
         odds: om ? om[1].toUpperCase() : '—',
         edge: em ? em[1] + '%' : '',
         league: league,
+        sourceEventId: mappedGame?.eventId || '',
+        _gameStatus: mappedGame?.status || '',
+        _gameClock: mappedGame?.clock || '',
+        _gameStartTs: Number(mappedGame?.startTs) || 0,
+        _chatStakeHint: sm ? Number(sm[1]) : 0,
+        addedAt: Date.now() + i
       });
       if (out.length >= 12) break;
     }
@@ -2891,6 +2989,36 @@ init();
     };
   }
 
+  function syncPickGameContext(p) {
+    if (!p || typeof p !== 'object') return p;
+    let game = null;
+    if (p.sourceEventId) game = gameByKey(p.sourceEventId);
+    if (!game) game = findScoreContextForPick(p);
+    if (!game) return p;
+    p.sourceEventId = game.eventId || p.sourceEventId || '';
+    p._gameStatus = game.status || '';
+    p._gameClock = game.clock || '';
+    p._gamePeriod = game.period || '';
+    p._gameStartTs = Number(game.startTs) || Number(p._gameStartTs) || 0;
+    return p;
+  }
+
+  function gameTimeBadge(p) {
+    const now = Date.now();
+    const st = String(p && p._gameStatus || '').toLowerCase();
+    const clock = String(p && p._gameClock || '');
+    const period = String(p && p._gamePeriod || '');
+    const startTs = Number(p && p._gameStartTs) || 0;
+    if (st === 'inprogress') return 'LIVE ' + (clock || '').trim() + (period ? (' · ' + period) : '');
+    if (st === 'closed') return 'FINAL';
+    if (startTs > now) {
+      const mins = Math.max(0, Math.round((startTs - now) / 60000));
+      if (mins < 90) return 'STARTS IN ' + mins + 'M';
+      return 'START ' + new Date(startTs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    return clock ? ('SCHEDULED · ' + clock) : 'SCHEDULED';
+  }
+
   function openPickModal(p, conf, ev) {
     const old = document.getElementById('pickDetailModal');
     if (old) old.remove();
@@ -2972,37 +3100,56 @@ init();
       return;
     }
     const bctx = budgetContext();
+    const synced = picks.map(function (p) { return syncPickGameContext(p); });
+    synced.sort(function (a, b) {
+      const ws = { inprogress: 0, scheduled: 1, closed: 2 };
+      const ak = ws[String(a && a._gameStatus || '').toLowerCase()] ?? 9;
+      const bk = ws[String(b && b._gameStatus || '').toLowerCase()] ?? 9;
+      if (ak !== bk) return ak - bk;
+      return (Number(b && b._autoRank) || -9999) - (Number(a && a._autoRank) || -9999);
+    });
+    const grouped = {};
+    synced.forEach(function (p) {
+      const key = p.sourceEventId || p.game || 'OTHER';
+      if (!grouped[key]) grouped[key] = { game: p.game || '—', items: [], status: String(p._gameStatus || '').toLowerCase(), startTs: Number(p._gameStartTs) || 0 };
+      grouped[key].items.push(p);
+    });
+
     c.innerHTML =
       '<div class="alert alert-info" style="margin-bottom:10px">Objective model picks only (anti-bias filter active). Daily budget: $' + bctx.budget.toFixed(0) + ' · At risk: $' + bctx.atRisk.toFixed(0) + ' · Remaining: $' + bctx.remaining.toFixed(0) + '.</div>' +
-      picks
-        .map(function (p) {
-          const edge = parsePercent(p && p.edge);
-          const ev = evPct(p.edge, p.odds);
-          const meta = pickConfidenceMeta(p);
-          const conf = meta.label;
-          const col = meta.color;
-          const rank = Number(p && p._autoRank);
-          const recStake = Number(p && p._recommendedStake) || 0;
-          const recPct = Number(p && p._recommendedStakePct) || 0;
-          const payload = encodeURIComponent(JSON.stringify(p));
-          return (
-            '<div class="pick-card ' + ((edge || 0) >= 10 ? 't1' : 't2') + '" data-pickdetail="' + payload + '" style="cursor:pointer">' +
-            '<div class="pick-game">' + (p.game || '—') + '</div>' +
-            '<div style="font-size:12px;color:var(--text2);margin:6px 0 8px">' + (p.pick || '') + '</div>' +
-            '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + (p.league || '—') + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">Odds ' + (p.odds || '—') + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || '—') + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((ev !== null && ev > 0) ? 'var(--green)' : 'var(--yellow)') + '">EV ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + conf + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text3)">RANK ' + (Number.isFinite(rank) ? rank.toFixed(1) : '—') + '</span>' +
-            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--yellow)">STAKE ' + (recStake > 0 ? ('$' + recStake + ' (' + recPct.toFixed(1) + '%)') : '—') + '</span>' +
-            '</div>' +
-            '<button class="btn" data-pickfill="' + payload + '" style="font-size:9px;border-color:var(--green);color:var(--green)">Use in Bet Log' + (recStake > 0 ? (' · $' + recStake) : '') + '</button>' +
-            '</div>'
-          );
-        })
-        .join('');
+      Object.keys(grouped).map(function (gk) {
+        const grp = grouped[gk];
+        const headerClock = gameTimeBadge(grp.items[0] || {});
+        return '<div class="pick-card" data-pick-game-group="' + encodeURIComponent(gk) + '" style="margin-bottom:10px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div class="pick-game">' + (grp.game || '—') + '</div><div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' + headerClock + '</div></div>' +
+          grp.items.map(function (p) {
+            const edge = parsePercent(p && p.edge);
+            const ev = evPct(p.edge, p.odds);
+            const meta = pickConfidenceMeta(p);
+            const conf = meta.label;
+            const col = meta.color;
+            const rank = Number(p && p._autoRank);
+            const recStake = Number(p && p._recommendedStake) || 0;
+            const recPct = Number(p && p._recommendedStakePct) || 0;
+            const payload = encodeURIComponent(JSON.stringify(p));
+            const rowClass = ((edge || 0) >= 10 ? 't1' : 't2');
+            return '<div class="pick-card ' + rowClass + '" data-pickdetail="' + payload + '" style="cursor:pointer;margin-bottom:6px">' +
+              '<div style="font-size:12px;color:var(--text2);margin:0 0 8px">' + (p.pick || '') + '</div>' +
+              '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + (p.league || '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + gameTimeBadge(p) + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">Odds ' + (p.odds || '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((ev !== null && ev > 0) ? 'var(--green)' : 'var(--yellow)') + '">EV ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + conf + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text3)">RANK ' + (Number.isFinite(rank) ? rank.toFixed(1) : '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--yellow)">STAKE ' + (recStake > 0 ? ('$' + recStake + ' (' + recPct.toFixed(1) + '%)') : '—') + '</span>' +
+              '</div>' +
+              '<button class="btn" data-pickfill="' + payload + '" style="font-size:9px;border-color:var(--green);color:var(--green)">Use in Bet Log' + (recStake > 0 ? (' · $' + recStake) : '') + '</button>' +
+              '</div>';
+          }).join('') +
+          '</div>';
+      }).join('');
     c.querySelectorAll('[data-pickdetail]').forEach(function (card) {
       card.addEventListener('click', function () {
         try {
@@ -3024,7 +3171,7 @@ init();
     const status = document.getElementById('picksRefreshStatus');
     if (status) {
       const now = new Date();
-      status.textContent = 'Last refresh ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · hourly auto-cycle active';
+      status.textContent = 'Last refresh ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · current game-time sync active';
     }
   }
 
@@ -3046,9 +3193,11 @@ init();
     if (typeof window.appendMsg !== 'function') return;
     const original = window.appendMsg;
     window.appendMsg = function patchedAppendMsg(role, text) {
-      original(role, text);
+      const isAssistant = String(role) === 'assistant';
+      const safeText = isAssistant ? sanitizeAssistantIntegrityText(text) : text;
+      original(role, safeText);
       if (String(role) === 'assistant') {
-        const picks = extractPicks(text);
+        const picks = extractPicks(safeText);
         if (picks.length) {
           persistDailyPicks(picks);
           renderPicksTab();
@@ -3584,7 +3733,10 @@ init();
       inFlight = true;
       try {
         await baseFetch();
-        if (seedPicksFromLiveScores(false)) renderPicksTab();
+        const seeded = seedPicksFromLiveScores(false);
+        const picksTab = document.getElementById('tab-picks');
+        const picksVisible = !!(picksTab && !picksTab.classList.contains('tab-hidden'));
+        if (seeded || picksVisible) renderPicksTab();
       } finally {
         inFlight = false;
       }
