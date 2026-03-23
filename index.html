@@ -1094,6 +1094,395 @@ init();
 
   const POLICY_VERSION = "v1-profitability-gate";
   const SETTLED_STATUSES = new Set(["won", "lost", "push"]);
+  const STORAGE_KEY_FALLBACK = "edge_model_v4";
+
+  function bootstrapFallbackCoreIfNeeded() {
+    if (typeof window.state === "undefined" || !window.state || typeof window.state !== "object") {
+      let loaded = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_FALLBACK);
+        loaded = raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        loaded = null;
+      }
+      window.state = Object.assign(
+        {
+          bankroll: 223.71,
+          floor: 100,
+          dailyPct: 35,
+          minBet: 10,
+          bets: [],
+          reviews: [],
+          passes: [],
+          failures: [],
+          learnings: [],
+          chatHistory: [],
+          watchList: [],
+          teamStats: {},
+        },
+        loaded || {}
+      );
+    }
+
+    if (typeof window.saveState !== "function") {
+      window.saveState = function saveStateFallback() {
+        try {
+          localStorage.setItem(STORAGE_KEY_FALLBACK, JSON.stringify(window.state || {}));
+        } catch (err) {}
+      };
+    }
+
+    if (typeof window.calcAtRisk !== "function") {
+      window.calcAtRisk = function calcAtRiskFallback() {
+        const bets = Array.isArray(state.bets) ? state.bets : [];
+        return bets
+          .filter((b) => b && (b.status === "placed" || b.status === "early" || b.status === "pending"))
+          .reduce((sum, b) => sum + (parseFloat(b.stake) || 0), 0);
+      };
+    }
+  }
+
+  function installFallbackRenderersIfNeeded() {
+    if (typeof window.renderBetLog !== "function") {
+      window.renderBetLog = function renderBetLogFallback() {
+        const c = document.getElementById("betLogContainer");
+        if (!c) return;
+        const bets = Array.isArray(state.bets) ? state.bets.slice().reverse() : [];
+        if (!bets.length) {
+          c.innerHTML = '<div style="color:var(--text3);font-size:12px">No bets logged yet</div>';
+          return;
+        }
+        c.innerHTML = bets
+          .map((b) => {
+            const source = b.source === "my" ? "MY PICK" : "SYSTEM";
+            const status = String(b.status || "").toUpperCase();
+            return (
+              '<div class="bet-row">' +
+              '<span style="color:var(--text3);font-size:11px">' + (b.date || "—") + "</span>" +
+              "<div><div style=\"font-size:12px;font-weight:600;color:var(--accent)\">" + (b.game || "—") + '</div><div style="color:var(--text2);font-size:11px">' + (b.pick || "—") + "</div></div>" +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:11px;color:var(--text2)">' + (b.odds || "—") + "</span>" +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:11px">$' + ((parseFloat(b.stake) || 0).toFixed(0)) + "</span>" +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--green)">' + (b.edge || "—") + "</span>" +
+              '<div><span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 5px;border-radius:2px;color:var(--text2)">' + source + "</span></div>" +
+              '<div><span class="bet-status status-pending">' + status + "</span></div>" +
+              "</div>"
+            );
+          })
+          .join("");
+      };
+    }
+
+    if (typeof window.renderReviews !== "function") {
+      window.renderReviews = function renderReviewsFallback() {
+        const c = document.getElementById("reviewContainer");
+        if (!c) return;
+        const items = Array.isArray(state.reviews) ? state.reviews.slice().reverse() : [];
+        if (!items.length) {
+          c.innerHTML = '<div class="review-card"><div style="color:var(--text3);font-size:12px">No reviews yet.</div></div>';
+          return;
+        }
+        c.innerHTML = items
+          .map((r) => {
+            const pl = parseFloat(r.pl);
+            const plTxt = Number.isFinite(pl) ? (pl >= 0 ? "+" : "") + pl.toFixed(2) : String(r.pl || "—");
+            return (
+              '<div class="review-card">' +
+              '<div class="review-header"><div><div style="font-size:14px;font-weight:600;color:var(--accent)">' + (r.game || "—") + '</div><div style="color:var(--text2);font-size:12px">' + (r.pick || "—") + "</div></div>" +
+              '<div style="text-align:right"><div style="font-family:\'Space Mono\',monospace;font-size:14px;color:var(--text)">' + (r.result || "—") + '</div><div style="font-family:\'Space Mono\',monospace;font-size:12px;color:' + (pl >= 0 ? "var(--green)" : "var(--red)") + '">' + plTxt + "</div></div></div>" +
+              '<div style="font-size:11px;color:var(--text2)">' + (r.lesson || "") + "</div></div>"
+            );
+          })
+          .join("");
+      };
+    }
+
+    if (typeof window.renderPasses !== "function") {
+      window.renderPasses = function renderPassesFallback() {
+        const c = document.getElementById("passLogContainer");
+        if (!c) return;
+        const items = Array.isArray(state.passes) ? state.passes.slice().reverse() : [];
+        c.innerHTML = items.length
+          ? items
+              .map((p) => '<div class="pass-row"><span class="pass-status pass-pass">' + String((p.decision || "pass")).toUpperCase() + '</span><div style="flex:1"><div style="font-size:12px;font-weight:600">' + (p.game || "—") + '</div><div style="color:var(--text2);font-size:11px">' + (p.reason || "") + "</div></div></div>")
+              .join("")
+          : '<div style="color:var(--text3);font-size:12px">No pass log entries yet</div>';
+      };
+    }
+
+    if (typeof window.renderFailures !== "function") {
+      window.renderFailures = function renderFailuresFallback() {
+        const c = document.getElementById("failureContainer");
+        if (!c) return;
+        const items = Array.isArray(state.failures) ? state.failures.slice().reverse() : [];
+        c.innerHTML = items.length
+          ? items
+              .map((f) => '<div class="failure-row"><div style="font-size:12px;color:var(--text)">' + (f.desc || "—") + '</div><div style="color:var(--text3);font-size:10px">' + (f.date || "") + "</div></div>")
+              .join("")
+          : '<div style="color:var(--text3);font-size:12px">No failures logged.</div>';
+      };
+    }
+
+    if (typeof window.renderLearnings !== "function") {
+      window.renderLearnings = function renderLearningsFallback() {
+        const c = document.getElementById("learningContainer");
+        if (!c) return;
+        const items = Array.isArray(state.learnings) ? state.learnings.slice().reverse() : [];
+        c.innerHTML = items.length
+          ? items
+              .map((l) => '<div class="learning-row"><div style="font-size:12px;font-weight:600">' + (l.pattern || "—") + '</div><div style="font-size:11px;color:var(--text2)">' + (l.app || "") + "</div></div>")
+              .join("")
+          : '<div style="color:var(--text3);font-size:12px">No learning entries yet.</div>';
+      };
+    }
+
+    if (typeof window.renderActiveBets !== "function") {
+      window.renderActiveBets = function renderActiveBetsFallback() {
+        const c = document.getElementById("activeBetsPanel");
+        if (!c) return;
+        const items = (Array.isArray(state.bets) ? state.bets : []).filter(
+          (b) => b && (b.status === "placed" || b.status === "early" || b.status === "pending")
+        );
+        c.innerHTML = items.length
+          ? items
+              .map((b) => '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px"><div><span style="font-weight:600">' + (b.game || "—") + '</span><span style="color:var(--text2);margin-left:8px">' + (b.pick || "") + '</span></div><div style="font-family:\'Space Mono\',monospace;color:var(--yellow)">$' + ((parseFloat(b.stake) || 0).toFixed(0)) + "</div></div>")
+              .join("")
+          : '<div style="color:var(--text3);font-size:12px">No active bets</div>';
+      };
+    }
+
+    if (typeof window.updateDisplays !== "function") {
+      window.updateDisplays = function updateDisplaysFallback() {
+        const br = Number(state.bankroll) || 0;
+        const budget = Math.floor((br * (Number(state.dailyPct) || 0)) / 100);
+        const atRisk = window.calcAtRisk ? window.calcAtRisk() : 0;
+        const remaining = Math.max(0, budget - atRisk);
+        const set = (id, v) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = v;
+        };
+        set("bankrollDisplay", "$" + br.toFixed(2));
+        set("atRiskDisplay", "$" + atRisk.toFixed(0));
+        set("budgetDisplay", "$" + remaining.toFixed(0));
+        set("brStat", "$" + br.toFixed(2));
+        set("budgetStat", "$" + budget.toFixed(0));
+        set("riskStat", "$" + atRisk.toFixed(0));
+        set("remainStat", "$" + remaining.toFixed(0));
+        if (typeof window.renderActiveBets === "function") window.renderActiveBets();
+        if (typeof window.renderBetLog === "function") window.renderBetLog();
+        if (typeof window.renderReviews === "function") window.renderReviews();
+        if (typeof window.renderPasses === "function") window.renderPasses();
+        if (typeof window.renderFailures === "function") window.renderFailures();
+        if (typeof window.renderLearnings === "function") window.renderLearnings();
+      };
+    }
+  }
+
+  function installFallbackScoresAndStandingsIfNeeded() {
+    if (typeof window.espnScores === "undefined") {
+      window.espnScores = { nhl: [], nba: [], ncaa: [] };
+    }
+    if (typeof window.fetchLeague !== "function") {
+      window.fetchLeague = async function fetchLeagueFallback(url) {
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      };
+    }
+    if (typeof window.indexESPNGames !== "function") {
+      window.indexESPNGames = function indexESPNGamesFallback(data, league) {
+        if (!data || !Array.isArray(data.events)) return [];
+        return data.events
+          .map((ev) => {
+            const comp = ev.competitions && ev.competitions[0];
+            if (!comp) return null;
+            const away = (comp.competitors || []).find((c) => c.homeAway === "away");
+            const home = (comp.competitors || []).find((c) => c.homeAway === "home");
+            if (!away || !home) return null;
+            const st = ev.status || {};
+            const t = st.type || {};
+            const live = !!(t.started && !t.completed);
+            const done = !!t.completed;
+            let clock = "";
+            if (done) clock = "Final";
+            else if (live) clock = st.displayClock || "";
+            else clock = new Date(ev.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+            return {
+              league,
+              away: away.team && away.team.abbreviation,
+              home: home.team && home.team.abbreviation,
+              scoreAway: live || done ? parseInt(away.score || 0, 10) : null,
+              scoreHome: live || done ? parseInt(home.score || 0, 10) : null,
+              status: done ? "closed" : live ? "inprogress" : "scheduled",
+              clock,
+              period: live ? (league === "NHL" ? "P" + (st.period || "") : "Q" + (st.quarter || "")) : "",
+              eventId: ev.id,
+            };
+          })
+          .filter(Boolean);
+      };
+    }
+    if (typeof window.renderScores !== "function") {
+      window.renderScores = function renderScoresFallback() {
+        const c = document.getElementById("liveScores");
+        if (!c) return;
+        const all = [].concat(espnScores.nhl || [], espnScores.nba || []);
+        if (!all.length) {
+          c.innerHTML = '<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px;grid-column:1/-1">No live data</div>';
+          return;
+        }
+        c.innerHTML = all
+          .slice(0, 16)
+          .map((g) => '<div class="score-card ' + (g.status === "inprogress" ? "live-game" : "") + '"><div class="score-league">' + g.league + "</div><div class=\"score-teams\"><span class=\"score-team\">" + (g.away || "—") + '</span><span class="score-num">' + (g.scoreAway == null ? "" : g.scoreAway) + '</span></div><div class="score-teams"><span class="score-team">' + (g.home || "—") + '</span><span class="score-num">' + (g.scoreHome == null ? "" : g.scoreHome) + '</span></div><div class="score-time ' + (g.status === "inprogress" ? "live" : "") + '">' + (g.clock || "") + (g.period ? " · " + g.period : "") + "</div></div>")
+          .join("");
+      };
+    }
+    if (typeof window.renderScoresFull !== "function") {
+      window.renderScoresFull = function renderScoresFullFallback() {
+        ["nhl", "nba", "ncaa"].forEach((lg) => {
+          const el = document.getElementById(lg + "ScoresFull");
+          if (!el) return;
+          const games = Array.isArray(espnScores[lg]) ? espnScores[lg] : [];
+          el.innerHTML = games.length
+            ? games
+                .map((g) => '<div class="sb-row ' + (g.status === "inprogress" ? "live" : g.status === "closed" ? "final" : "") + '"><div class="sb-teams"><div class="sb-team-row"><span class="sb-team-name">' + (g.away || "—") + '</span><span class="sb-score">' + (g.scoreAway == null ? "" : g.scoreAway) + '</span></div><div class="sb-team-row"><span class="sb-team-name">' + (g.home || "—") + '</span><span class="sb-score">' + (g.scoreHome == null ? "" : g.scoreHome) + '</span></div></div><div class="sb-meta"><div class="sb-clock ' + (g.status === "inprogress" ? "live" : "") + '">' + (g.status === "inprogress" ? "● " : "") + (g.clock || "") + '</div><div class="sb-period">' + (g.period || "") + "</div></div></div>")
+                .join("")
+            : '<div style="color:var(--text3);font-size:12px">No games</div>';
+        });
+      };
+    }
+    if (typeof window.fetchAllScores !== "function") {
+      window.fetchAllScores = async function fetchAllScoresFallback() {
+        const EPS = {
+          nhl: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard",
+          nba: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+          ncaa: "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+        };
+        const status = document.getElementById("scoreStatus");
+        if (status) status.textContent = "Fetching...";
+        const [nhl, nba, ncaa] = await Promise.allSettled([
+          fetchLeague(EPS.nhl),
+          fetchLeague(EPS.nba),
+          fetchLeague(EPS.ncaa),
+        ]);
+        if (nhl.status === "fulfilled") espnScores.nhl = indexESPNGames(nhl.value, "NHL");
+        if (nba.status === "fulfilled") espnScores.nba = indexESPNGames(nba.value, "NBA");
+        if (ncaa.status === "fulfilled") espnScores.ncaa = indexESPNGames(ncaa.value, "NCAA");
+        if (typeof renderScores === "function") renderScores();
+        if (typeof renderScoresFull === "function") renderScoresFull();
+        const t = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+        const last = document.getElementById("lastUpdate");
+        if (last) last.textContent = t;
+        if (status) status.textContent = "Updated " + t;
+      };
+    }
+
+    if (typeof window.standingsCache === "undefined") {
+      window.standingsCache = { nhl: null, nba: null, ncaa: null };
+    }
+    if (typeof window.standingsLeague === "undefined") window.standingsLeague = "nhl";
+    if (typeof window.standingsSubTab === "undefined") window.standingsSubTab = "division";
+
+    const STANDINGS_URLS = {
+      nhl: "https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings",
+      nba: "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings",
+      ncaa: "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings",
+    };
+
+    if (typeof window.setLeagueFilter !== "function") {
+      window.setLeagueFilter = function setLeagueFilterFallback(league, btn) {
+        standingsLeague = league;
+        document.querySelectorAll("[id^='stFilter-']").forEach((b) => {
+          b.style.borderColor = "";
+          b.style.color = "";
+        });
+        if (btn) {
+          btn.style.borderColor = "var(--green)";
+          btn.style.color = "var(--green)";
+        }
+        if (typeof fetchStandings === "function") fetchStandings();
+      };
+    }
+    if (typeof window.setStSub !== "function") {
+      window.setStSub = function setStSubFallback(sub, btn) {
+        standingsSubTab = sub;
+        document.querySelectorAll(".st-sub-tab").forEach((b) => b.classList.remove("active"));
+        if (btn) btn.classList.add("active");
+        if (typeof renderStandingsView === "function") renderStandingsView();
+      };
+    }
+    if (typeof window.renderStandingsView !== "function") {
+      window.renderStandingsView = function renderStandingsViewFallback() {
+        const c = document.getElementById("standingsContainer");
+        if (!c) return;
+        const data = standingsCache[standingsLeague];
+        if (!data) {
+          c.innerHTML = '<div style="color:var(--text3);font-size:12px">No standings loaded</div>';
+          return;
+        }
+        if (standingsLeague === "ncaa") {
+          const ranks = ((data.rankings || [])[0] || {}).ranks || [];
+          c.innerHTML =
+            '<table class="standings-table"><thead><tr><th>#</th><th>Team</th><th class="num">W-L</th></tr></thead><tbody>' +
+            ranks
+              .slice(0, 25)
+              .map((r) => {
+                const rec = r.recordSummary || "—";
+                return "<tr><td class=\"rank\">" + r.current + "</td><td><span class=\"team-name\">" + ((r.team && r.team.displayName) || "—") + "</span></td><td class=\"num\">" + rec + "</td></tr>";
+              })
+              .join("") +
+            "</tbody></table>";
+          return;
+        }
+        let entries = [];
+        (data.children || []).forEach((conf) => {
+          if (Array.isArray(conf.children) && conf.children.length) {
+            conf.children.forEach((div) => {
+              entries = entries.concat((div.standings && div.standings.entries) || div.entries || []);
+            });
+          } else {
+            entries = entries.concat((conf.standings && conf.standings.entries) || conf.entries || []);
+          }
+        });
+        if (!entries.length) entries = (data.standings && data.standings.entries) || data.entries || [];
+        const rows = entries
+          .slice(0, 40)
+          .map((e, i) => {
+            const team = (e.team && (e.team.displayName || e.team.shortDisplayName)) || "—";
+            const stats = {};
+            (e.stats || []).forEach((s) => {
+              stats[s.name || s.shortDisplayName] = s.displayValue || s.value;
+            });
+            const w = stats.wins || stats.W || "—";
+            const l = stats.losses || stats.L || "—";
+            const pct = stats.winPercent || stats.PCT || stats.pointsPercentage || "—";
+            return "<tr><td class=\"rank\">" + (i + 1) + "</td><td><span class=\"team-name\">" + team + "</span></td><td class=\"num\">" + w + "</td><td class=\"num\">" + l + "</td><td class=\"num\">" + pct + "</td></tr>";
+          })
+          .join("");
+        c.innerHTML =
+          '<table class="standings-table"><thead><tr><th>#</th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PCT</th></tr></thead><tbody>' +
+          rows +
+          "</tbody></table>";
+      };
+    }
+    if (typeof window.fetchStandings !== "function") {
+      window.fetchStandings = async function fetchStandingsFallback() {
+        const c = document.getElementById("standingsContainer");
+        if (c) c.innerHTML = '<div style="color:var(--text3);font-size:12px">Fetching standings...</div>';
+        try {
+          const r = await fetch(STANDINGS_URLS[standingsLeague], { signal: AbortSignal.timeout(8000) });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          standingsCache[standingsLeague] = await r.json();
+          if (typeof renderStandingsView === "function") renderStandingsView();
+        } catch (err) {
+          if (c) c.innerHTML = '<div style="color:var(--red);font-size:12px">Could not load standings.</div>';
+        }
+      };
+    }
+  }
+
+  bootstrapFallbackCoreIfNeeded();
+  installFallbackRenderersIfNeeded();
+  installFallbackScoresAndStandingsIfNeeded();
 
   function hasState() {
     return typeof window.state === "object" && window.state !== null;
@@ -1714,6 +2103,20 @@ init();
     return state.dailyPicks[key];
   }
 
+  function bootstrapDailyPicksFromHistory() {
+    if (!hasState()) return;
+    const today = getTodayDailyPicks();
+    if (today.length) return;
+    const hist = Array.isArray(state.chatHistory) ? state.chatHistory.slice(-30) : [];
+    const candidates = [];
+    hist.forEach((m) => {
+      if (!m || String(m.role || "") !== "assistant") return;
+      const picks = extractPicksFromText(m.content || "");
+      if (picks.length) candidates.push(...picks);
+    });
+    if (candidates.length) persistDailyPicks(candidates);
+  }
+
   function renderParsedPicks(picks) {
     const container = document.getElementById("picksContainer");
     if (!container) return;
@@ -2261,8 +2664,11 @@ init();
   patchShowAddBetForm();
   patchUpdateDisplaysHook();
   ensureStateCollections();
+  bootstrapDailyPicksFromHistory();
   ensureBetAssistPanel();
   renderParsedPicks();
+  if (typeof updateDisplays === "function") updateDisplays();
+  if (typeof fetchAllScores === "function") fetchAllScores();
   runAutoSettlementFromScores();
   refreshAutoLearnings();
   startLiveScoreSyncLoop();
