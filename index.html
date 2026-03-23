@@ -951,7 +951,7 @@ function renderScores() {
     const live=g.status==='inprogress';const done=g.status==='closed';
     const sa=g.scoreAway??'',sh=g.scoreHome??'';
     const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
+    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer" onclick="if(window.openGameById)window.openGameById('${g.eventId||''}')">
       <div class="score-league">${g.league} ${live?'<span style="color:var(--orange)">● LIVE</span>':''}</div>
       <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
       <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
@@ -969,7 +969,7 @@ function renderScoresFull() {
     return sorted.map(g=>{
       const live=g.status==='inprogress',done=g.status==='closed',bet=hasBet(g);
       const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
+      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer" onclick="if(window.openGameById)window.openGameById('${g.eventId||''}')">
         ${bet?'<div style="position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--green)"></div>':''}
         <div class="sb-teams">
           <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
@@ -996,6 +996,13 @@ const STANDINGS_URLS = {
   nhl: 'https://site.api.espn.com/apis/v2/sports/hockey/nhl/standings',
   nba: 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings',
   ncaa:'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings'
+};
+
+const NHL_DIVISION_HINTS = {
+  CAR: 'Metropolitan', CBJ: 'Metropolitan', NJD: 'Metropolitan', NYI: 'Metropolitan', NYR: 'Metropolitan', PHI: 'Metropolitan', PIT: 'Metropolitan', WSH: 'Metropolitan',
+  BOS: 'Atlantic', BUF: 'Atlantic', DET: 'Atlantic', FLA: 'Atlantic', MTL: 'Atlantic', OTT: 'Atlantic', TBL: 'Atlantic', TOR: 'Atlantic',
+  CHI: 'Central', COL: 'Central', DAL: 'Central', MIN: 'Central', NSH: 'Central', STL: 'Central', UTA: 'Central', WPG: 'Central',
+  ANA: 'Pacific', CGY: 'Pacific', EDM: 'Pacific', LAK: 'Pacific', SJS: 'Pacific', SEA: 'Pacific', VAN: 'Pacific', VGK: 'Pacific'
 };
 
 function standingsSortValue(entry, league) {
@@ -1043,6 +1050,14 @@ function renderStandingsView() {
   if(standingsLeague==='ncaa') { renderNCAARankings(standingsCache.ncaa, document.getElementById('standingsContainer')); return; }
   const data=standingsCache[standingsLeague];
   if(!data){fetchStandings();return;}
+  if(standingsLeague==='nhl' && standingsSubTab==='conference') {
+    standingsSubTab='division';
+    const btn=document.getElementById('stSub-division');
+    if(btn){
+      document.querySelectorAll('.st-sub-tab').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+  }
   if(standingsSubTab==='division') renderDivisionStandings(data);
   else if(standingsSubTab==='conference') renderConferenceStandings(data);
   else if(standingsSubTab==='league') renderLeagueStandings(data);
@@ -1113,23 +1128,53 @@ function legendHTML() {
 function renderDivisionStandings(data) {
   const c=document.getElementById('standingsContainer'); if(!c) return;
   const league=standingsLeague;
-  const groups=data.children||[];
-  if(!groups.length){renderLeagueStandings(data);return;}
   let html='';
-  groups.forEach(conf=>{
-    const confName=conf.name||conf.abbreviation||'';
-    const divGroups=conf.children?.length?conf.children:(conf.standings?.entries?[conf]:[]);
-    divGroups.forEach(div=>{
-      const entriesRaw=div.standings?.entries||div.entries||[];
-      const entries=[...entriesRaw].sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
+  if (league === 'nhl') {
+    const east=(data.children||[]).find(conf=>String(conf.abbreviation||'').toLowerCase()==='east')?.standings?.entries||[];
+    const west=(data.children||[]).find(conf=>String(conf.abbreviation||'').toLowerCase()==='west')?.standings?.entries||[];
+    if(!east.length&&!west.length){renderLeagueStandings(data);return;}
+    function asDivisionBlocks(confName, entries, divAName, divBName){
       if(!entries.length) return;
-      const divName=div.name||div.abbreviation||confName;
-      html+=`<div class="standings-div">${confName?confName+' — ':''}${divName}</div>`;
+      const sorted=[...entries].sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
+      const groupA=[]; const groupB=[];
+      sorted.forEach(function(e){
+        const abbr=String(e?.team?.abbreviation||'').toUpperCase();
+        const div=NHL_DIVISION_HINTS[abbr]||'';
+        if(div===divAName) groupA.push(e);
+        else if(div===divBName) groupB.push(e);
+      });
+      const fallbackHalf=Math.ceil(sorted.length/2);
+      const a=groupA.length?groupA:sorted.slice(0,fallbackHalf);
+      const b=groupB.length?groupB:sorted.slice(fallbackHalf);
+      html+=`<div class="standings-div">${confName} — ${divAName}</div>`;
       html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
-      entries.forEach((e,i)=>{ html+=buildTeamRow(e,i,3,league); });
+      a.forEach((e,i)=>{ html+=buildTeamRow(e,i,3,league); });
       html+='</tbody></table>';
+      html+=`<div class="standings-div">${confName} — ${divBName}</div>`;
+      html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
+      b.forEach((e,i)=>{ html+=buildTeamRow(e,i,3,league); });
+      html+='</tbody></table>';
+    }
+    asDivisionBlocks('Eastern', east, 'Atlantic', 'Metropolitan');
+    asDivisionBlocks('Western', west, 'Central', 'Pacific');
+  } else {
+    const groups=data.children||[];
+    if(!groups.length){renderLeagueStandings(data);return;}
+    groups.forEach(conf=>{
+      const confName=conf.name||conf.abbreviation||'';
+      const divGroups=conf.children?.length?conf.children:(conf.standings?.entries?[conf]:[]);
+      divGroups.forEach(div=>{
+        const entriesRaw=div.standings?.entries||div.entries||[];
+        const entries=[...entriesRaw].sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
+        if(!entries.length) return;
+        const divName=div.name||div.abbreviation||confName;
+        html+=`<div class="standings-div">${confName?confName+' — ':''}${divName}</div>`;
+        html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
+        entries.forEach((e,i)=>{ html+=buildTeamRow(e,i,3,league); });
+        html+='</tbody></table>';
+      });
     });
-  });
+  }
   if(!html){renderLeagueStandings(data);return;}
   html+=legendHTML();
   c.innerHTML=html;
@@ -1139,6 +1184,24 @@ function renderDivisionStandings(data) {
 function renderConferenceStandings(data) {
   const c=document.getElementById('standingsContainer'); if(!c) return;
   const league=standingsLeague;
+  if(league==='nhl'){
+    const c=document.getElementById('standingsContainer'); if(!c) return;
+    const groups=data.children||[];
+    if(!groups.length){renderLeagueStandings(data);return;}
+    let html='';
+    groups.forEach(conf=>{
+      const allEntries=(conf.standings?.entries||conf.entries||[]).slice().sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
+      if(!allEntries.length) return;
+      html+=`<div class="standings-div">${conf.name||conf.abbreviation||'Conference'}</div>`;
+      html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
+      allEntries.forEach((e,i)=>{ html+=buildTeamRow(e,i,8,league); });
+      html+='</tbody></table>';
+    });
+    if(!html){renderLeagueStandings(data);return;}
+    html+=legendHTML();
+    c.innerHTML=html;
+    return;
+  }
   const groups=data.children||[];
   if(!groups.length){renderLeagueStandings(data);return;}
   let html='';
@@ -2198,8 +2261,15 @@ init();
   }
 
   function ensureDailyPicks() {
-    const s = getState();
-    if (!s) return;
+    const s = getState() || {};
+    if (!Array.isArray(s.bets)) s.bets = [];
+    if (!Array.isArray(s.reviews)) s.reviews = [];
+    if (!Array.isArray(s.passes)) s.passes = [];
+    if (!Array.isArray(s.failures)) s.failures = [];
+    if (!Array.isArray(s.learnings)) s.learnings = [];
+    if (!Array.isArray(s.watchList)) s.watchList = [];
+    if (!Array.isArray(s.chatHistory)) s.chatHistory = [];
+    if (!s.teamStats || typeof s.teamStats !== 'object') s.teamStats = {};
     if (!s[DAILY_KEY] || typeof s[DAILY_KEY] !== 'object') s[DAILY_KEY] = {};
     if (!Array.isArray(s[DAILY_KEY][todayKey()])) s[DAILY_KEY][todayKey()] = [];
     window.state = s;
@@ -2248,8 +2318,10 @@ init();
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       const gm = line.match(/([A-Z]{2,4})\s*(?:@|vs\.?|v)\s*([A-Z]{2,4})/i);
-      const om = line.match(/([+-]\d{3}|EVEN|PK|PICK)/i);
-      if (!gm || !om) continue;
+      const om = line.match(/([+-]\d{2,4}|EVEN|PK|PICK)/i);
+      if (!gm) continue;
+      const actionable = /(OVER|UNDER|ML|MONEYLINE|SPREAD|TOTAL|ALT|PARLAY|TEAM TOTAL)/i.test(line);
+      if (!om && !actionable) continue;
       const em = line.match(/(\d+(?:\.\d+)?)\s*%/i);
       const up = line.toUpperCase();
       let league = 'NHL';
@@ -2259,7 +2331,7 @@ init();
         id: Date.now() + i,
         game: gm[1].toUpperCase() + ' vs ' + gm[2].toUpperCase(),
         pick: line.replace(/^[-*•]\s*/, ''),
-        odds: om[1].toUpperCase(),
+        odds: om ? om[1].toUpperCase() : '—',
         edge: em ? em[1] + '%' : '',
         league: league,
       });
@@ -2301,29 +2373,33 @@ init();
 
   function ensureMorningPicksReady() {
     ensureDailyPicks();
+    if (!window.__ensureMorningSeedCounter) window.__ensureMorningSeedCounter = 1;
     const arr = window.state[DAILY_KEY][todayKey()] || [];
     const hour = new Date().getHours();
     const isNight = hour < 5;
-    if (arr.length) return;
-    if (isNight) return;
+    if (arr.length) return false;
+    if (isNight) return false;
     const carry = mostRecentNonEmptyPickDay()
       .filter(function (p) { return !p.isAutoPlaceholder; })
       .slice(0, 5)
       .map(function (p, i) {
+        const seed = window.__ensureMorningSeedCounter++;
         return {
-          id: Date.now() + i,
+          id: Date.now() + seed,
           game: p.game || '',
           pick: p.pick || '',
           odds: p.odds || '',
           edge: p.edge || '',
           league: p.league || '',
-          addedAt: Date.now() + i
+          addedAt: Date.now() + seed
         };
       });
     if (carry.length) {
       persistDailyPicks(carry);
+      return true;
     } else {
       persistDailyPicks(getMorningTemplatePicks());
+      return true;
     }
   }
 
@@ -2441,13 +2517,13 @@ init();
     if (btn) btn.disabled = true;
     if (status) status.textContent = 'Refreshing picks...';
     try {
-      ensureMorningPicksReady();
+      const seeded = ensureMorningPicksReady();
       maybeRunHourlyPickCycle(true);
       if (typeof window.fetchAllScores === 'function') {
         await window.fetchAllScores();
       }
       renderPicksTab();
-      if (status) status.textContent = 'Picks refreshed just now.';
+      if (status) status.textContent = seeded ? 'Picks refreshed and seeded.' : 'Picks refreshed just now.';
     } catch (e) {
       if (status) status.textContent = 'Refresh failed. Try again.';
     } finally {
@@ -2994,6 +3070,9 @@ init();
       }
       if (typeof window.renderScoreDateStrip === 'function') window.renderScoreDateStrip();
     };
+
+    window.getSelectedScoreDateKey = getSelectedScoreDateKey;
+    window.fromScoreDateKey = fromScoreDateKey;
   }
 
   function installScoreSearchAndFilter() {
@@ -3273,6 +3352,16 @@ init();
   if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
   installLiveOneSecondSync();
   installSidebarToggle();
+  window.openGameById = function openGameById(eventId) {
+    const id = String(eventId || '');
+    if (!id) return;
+    const all = []
+      .concat(Array.isArray(window.espnScores?.nhl) ? window.espnScores.nhl : [])
+      .concat(Array.isArray(window.espnScores?.nba) ? window.espnScores.nba : [])
+      .concat(Array.isArray(window.espnScores?.ncaa) ? window.espnScores.ncaa : []);
+    const g = all.find(function (x) { return String(x.eventId || '') === id; });
+    if (g) openGameDetailModal(g);
+  };
 })();
 </script>
 </body>
