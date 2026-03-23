@@ -1084,5 +1084,584 @@ init();
 })();
 </script>
 
+<script>
+// Profitability engine hardening (model-safe overrides).
+// Adds deterministic math, pre-bet rule gates, safer bankroll accounting,
+// and an in-app policy impact test without changing UI layout structure.
+(function () {
+  if (window.__profitabilityPatchApplied) return;
+  window.__profitabilityPatchApplied = true;
+
+  const POLICY_VERSION = "v1-profitability-gate";
+  const SETTLED_STATUSES = new Set(["won", "lost", "push"]);
+
+  function hasState() {
+    return typeof window.state === "object" && window.state !== null;
+  }
+
+  function parsePercent(value) {
+    if (value === null || value === undefined) return null;
+    const n = parseFloat(String(value).replace("%", "").trim());
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  function parseAmericanOdds(odds) {
+    if (odds === null || odds === undefined) return null;
+    const raw = String(odds).trim().toUpperCase();
+    if (!raw || raw === "-" || raw === "—" || raw === "N/A" || raw === "CUSTOM") return null;
+    if (raw === "EVEN" || raw === "EV" || raw === "PK" || raw === "PICK") return 100;
+    const n = parseInt(raw.replace("+", ""), 10);
+    if (!Number.isFinite(n) || n === 0) return null;
+    return n;
+  }
+
+  function impliedProbabilityFromAmerican(americanOdds) {
+    if (!Number.isFinite(americanOdds) || americanOdds === 0) return null;
+    if (americanOdds > 0) return 100 / (americanOdds + 100);
+    return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
+  }
+
+  function removeVigTwoWay(probA, probB) {
+    if (!Number.isFinite(probA) || !Number.isFinite(probB) || probA <= 0 || probB <= 0) return null;
+    const total = probA + probB;
+    if (total <= 0) return null;
+    return { fairA: probA / total, fairB: probB / total, hold: total - 1 };
+  }
+
+  function decimalOddsFromAmerican(americanOdds) {
+    if (!Number.isFinite(americanOdds) || americanOdds === 0) return null;
+    if (americanOdds > 0) return 1 + americanOdds / 100;
+    return 1 + 100 / Math.abs(americanOdds);
+  }
+
+  function expectedValuePerUnitStake(modelProb, americanOdds) {
+    const dec = decimalOddsFromAmerican(americanOdds);
+    if (!Number.isFinite(modelProb) || !Number.isFinite(dec) || modelProb <= 0 || modelProb >= 1) return null;
+    return modelProb * (dec - 1) - (1 - modelProb);
+  }
+
+  function fractionalKellyStake(bankroll, modelProb, americanOdds, fraction) {
+    const dec = decimalOddsFromAmerican(americanOdds);
+    if (!Number.isFinite(bankroll) || !Number.isFinite(dec) || !Number.isFinite(modelProb) || bankroll <= 0) {
+      return null;
+    }
+    const b = dec - 1;
+    if (b <= 0) return null;
+    const q = 1 - modelProb;
+    const fullKelly = (b * modelProb - q) / b;
+    const usedKelly = Math.max(0, fullKelly) * (Number.isFinite(fraction) ? fraction : 0.25);
+    return bankroll * usedKelly;
+  }
+
+  function isSystemPick(bet) {
+    return !bet.source || bet.source === "system";
+  }
+
+  function getRemainingBudgetSnapshot() {
+    if (!hasState()) return null;
+    const br = Number(state.bankroll) || 0;
+    const pct = Number(state.dailyPct) || 0;
+    const budget = Math.floor((br * pct) / 100);
+    const atRisk = Array.isArray(state.bets)
+      ? state.bets
+          .filter((b) => b && (b.status === "placed" || b.status === "early"))
+          .reduce((sum, b) => sum + (parseFloat(b.stake) || 0), 0)
+      : 0;
+    return { budget, atRisk, remaining: Math.max(0, budget - atRisk) };
+  }
+
+  function hasDoubleExposure(bet) {
+    if (!hasState() || !Array.isArray(state.bets)) return false;
+    const gameKey = String(bet.game || "").trim().toUpperCase();
+    const marketKey = String(bet.market || "").trim().toUpperCase();
+    if (!gameKey) return false;
+    return state.bets.some((b) => {
+      if (!b || (b.status !== "placed" && b.status !== "early")) return false;
+      const sameGame = String(b.game || "").trim().toUpperCase() === gameKey;
+      if (!sameGame) return false;
+      // Prevent duplicate active exposure in same game + same market.
+      return String(b.market || "").trim().toUpperCase() === marketKey;
+    });
+  }
+
+  function validateBetForPolicy(bet) {
+    const errors = [];
+    const warnings = [];
+
+    const stake = parseFloat(bet.stake) || 0;
+    const minBet = hasState() ? Number(state.minBet) || 10 : 10;
+    if (!bet.game || !bet.pick) errors.push("Game and pick are required.");
+    if (!(stake > 0)) errors.push("Stake must be greater than 0.");
+    if (stake > 0 && stake < minBet) errors.push("Stake is below min bet ($" + minBet + ").");
+
+    const budgetSnap = getRemainingBudgetSnapshot();
+    if (budgetSnap && stake > budgetSnap.remaining) {
+      errors.push("Stake exceeds remaining daily budget ($" + budgetSnap.remaining + ").");
+    }
+
+    if (hasDoubleExposure(bet)) {
+      errors.push("Double exposure blocked: active bet exists for this game and market.");
+    }
+
+    const edgePct = parsePercent(bet.edge);
+    if (isSystemPick(bet)) {
+      if (edgePct === null) {
+        errors.push("System picks require an edge %.");
+      } else if (edgePct < 3) {
+        errors.push("System picks require >= 3% edge.");
+      }
+    } else if (edgePct !== null && edgePct < 0) {
+      warnings.push("Negative edge recorded on manual pick.");
+    }
+
+    const amer = parseAmericanOdds(bet.odds);
+    const implied = impliedProbabilityFromAmerican(amer);
+    let modelProb = null;
+    let evPct = null;
+    let kellyStake = null;
+    if (implied !== null && edgePct !== null) {
+      modelProb = Math.max(0.01, Math.min(0.99, implied + edgePct / 100));
+      const ev = expectedValuePerUnitStake(modelProb, amer);
+      if (Number.isFinite(ev)) evPct = ev * 100;
+      if (hasState()) {
+        const k = fractionalKellyStake(Number(state.bankroll) || 0, modelProb, amer, 0.25);
+        if (Number.isFinite(k)) kellyStake = k;
+      }
+      if (Number.isFinite(evPct) && evPct <= 0 && isSystemPick(bet)) {
+        warnings.push("Computed EV is not positive from entered edge/odds.");
+      }
+    } else if (isSystemPick(bet)) {
+      warnings.push("Could not compute deterministic EV (invalid/missing odds or edge).");
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors,
+      warnings,
+      diagnostics: {
+        impliedProbPct: implied === null ? null : implied * 100,
+        modelProbPct: modelProb === null ? null : modelProb * 100,
+        evPct,
+        suggestedKellyStake: kellyStake,
+      },
+    };
+  }
+
+  function pnlFromResult(bet, result) {
+    const stake = parseFloat(bet && bet.stake) || 0;
+    if (!(stake > 0)) return 0;
+    const normalized = String(result || "").toLowerCase();
+    if (normalized === "lost") return -stake;
+    if (normalized === "push") return 0;
+    if (normalized !== "won") return 0;
+
+    const amer = parseAmericanOdds(bet && bet.odds);
+    if (amer === null) {
+      const fallback = parseFloat(bet && bet.pnl);
+      return Number.isFinite(fallback) ? fallback : 0;
+    }
+    if (amer > 0) return stake * (amer / 100);
+    return stake * (100 / Math.abs(amer));
+  }
+
+  function round2(n) {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  function patchAddBet() {
+    window.addBet = function addBet() {
+      if (!hasState()) {
+        alert("State unavailable. Reload and try again.");
+        return;
+      }
+      const bet = {
+        id: Date.now(),
+        date: document.getElementById("betDate")?.value || "",
+        game: document.getElementById("betGame")?.value || "",
+        pick: document.getElementById("betPick")?.value || "",
+        odds: document.getElementById("betOdds")?.value || "",
+        stake: parseFloat(document.getElementById("betStake")?.value) || 0,
+        edge: document.getElementById("betEdge")?.value || "",
+        status: document.getElementById("betStatus")?.value || "placed",
+        league: document.getElementById("betLeague")?.value || "NHL",
+        market: document.getElementById("betMarket")?.value || "Total",
+        source: document.getElementById("betSource")?.value || "system",
+      };
+
+      const gate = validateBetForPolicy(bet);
+      if (!gate.ok) {
+        alert("Bet blocked by policy:\n- " + gate.errors.join("\n- "));
+        return;
+      }
+
+      bet.policyVersion = POLICY_VERSION;
+      bet.impliedProb = gate.diagnostics.impliedProbPct;
+      bet.modelProb = gate.diagnostics.modelProbPct;
+      bet.evPct = gate.diagnostics.evPct;
+      bet.kellyStake = gate.diagnostics.suggestedKellyStake;
+
+      if (gate.warnings.length) {
+        const proceed = confirm(
+          "Warnings:\n- " + gate.warnings.join("\n- ") + "\n\nPlace bet anyway?"
+        );
+        if (!proceed) return;
+      }
+
+      state.bets.push(bet);
+      if (typeof saveState === "function") saveState();
+      if (typeof updateDisplays === "function") updateDisplays();
+      const form = document.getElementById("addBetForm");
+      if (form) form.classList.add("tab-hidden");
+    };
+  }
+
+  function patchUpdateBetResult() {
+    window.updateBetResult = function updateBetResult(id, result) {
+      if (!hasState() || !Array.isArray(state.bets)) return;
+      const bet = state.bets.find((b) => b && b.id === id);
+      if (!bet) return;
+
+      const newStatus = String(result || "").toLowerCase();
+      const oldStatus = String(bet.status || "").toLowerCase();
+      if (oldStatus === newStatus) return;
+
+      const oldPnl = SETTLED_STATUSES.has(oldStatus) ? pnlFromResult(bet, oldStatus) : 0;
+      const newPnl = SETTLED_STATUSES.has(newStatus) ? pnlFromResult(bet, newStatus) : 0;
+      const delta = round2(newPnl - oldPnl);
+
+      state.bankroll = round2((Number(state.bankroll) || 0) + delta);
+      bet.status = newStatus;
+
+      if (typeof saveState === "function") saveState();
+      if (typeof updateDisplays === "function") updateDisplays();
+    };
+  }
+
+  function patchAddReview() {
+    window.addReview = function addReview() {
+      if (!hasState()) return;
+      const r = {
+        id: Date.now(),
+        game: document.getElementById("rvGame")?.value || "",
+        pick: document.getElementById("rvPick")?.value || "",
+        stake: parseFloat(document.getElementById("rvStake")?.value) || 0,
+        betLine: document.getElementById("rvBetLine")?.value || "",
+        mktLine: document.getElementById("rvMktLine")?.value || "",
+        closeLine: document.getElementById("rvCloseLine")?.value || "",
+        clv: document.getElementById("rvCLV")?.value || "",
+        result: document.getElementById("rvResult")?.value || "PUSH",
+        pl: document.getElementById("rvPL")?.value || "0",
+        league: document.getElementById("rvLeague")?.value || "NHL",
+        market: document.getElementById("rvMarket")?.value || "Total",
+        edge: document.getElementById("rvEdge")?.value || "",
+        source: document.getElementById("rvSource")?.value || "system",
+        lesson: document.getElementById("rvLesson")?.value || "",
+      };
+
+      const plNum = parseFloat(r.pl);
+      let applyToBankroll = Number.isFinite(plNum);
+
+      // Prevent obvious double-count if matching settled bet already booked bankroll.
+      const match = Array.isArray(state.bets)
+        ? state.bets.find((b) => {
+            if (!b) return false;
+            const sameGame = String(b.game || "").trim().toUpperCase() === String(r.game || "").trim().toUpperCase();
+            const samePick = String(b.pick || "").trim().toUpperCase() === String(r.pick || "").trim().toUpperCase();
+            const settled = SETTLED_STATUSES.has(String(b.status || "").toLowerCase());
+            return sameGame && samePick && settled;
+          })
+        : null;
+      if (match) applyToBankroll = false;
+
+      r.bankrollApplied = applyToBankroll;
+      if (applyToBankroll) {
+        state.bankroll = round2((Number(state.bankroll) || 0) + plNum);
+      }
+
+      state.reviews.push(r);
+      if (typeof saveState === "function") saveState();
+      if (typeof renderReviews === "function") renderReviews();
+      if (typeof updateDisplays === "function") updateDisplays();
+      const form = document.getElementById("addReviewForm");
+      if (form) form.classList.add("tab-hidden");
+    };
+  }
+
+  function computePolicyImpactMetrics(reviews) {
+    const system = (reviews || []).filter((r) => r && r.source !== "my");
+    const baselinePl = system.reduce((sum, r) => sum + (parseFloat(r.pl) || 0), 0);
+    const baselineN = system.length;
+    const baselineWins = system.filter((r) => String(r.result || "").toUpperCase() === "WIN").length;
+    const baselineWr = baselineN ? (baselineWins / baselineN) * 100 : 0;
+
+    const gated = system.filter((r) => {
+      const edge = parsePercent(r.edge);
+      if (edge === null) return false;
+      return edge >= 3;
+    });
+    const gatedPl = gated.reduce((sum, r) => sum + (parseFloat(r.pl) || 0), 0);
+    const gatedN = gated.length;
+    const gatedWins = gated.filter((r) => String(r.result || "").toUpperCase() === "WIN").length;
+    const gatedWr = gatedN ? (gatedWins / gatedN) * 100 : 0;
+
+    return {
+      baselinePl: round2(baselinePl),
+      baselineN,
+      baselineWr: round2(baselineWr),
+      gatedPl: round2(gatedPl),
+      gatedN,
+      gatedWr: round2(gatedWr),
+      deltaPl: round2(gatedPl - baselinePl),
+      deltaWr: round2(gatedWr - baselineWr),
+    };
+  }
+
+  function ensurePolicyPanel() {
+    const roiTab = document.getElementById("tab-roi");
+    if (!roiTab) return null;
+    let panel = document.getElementById("policyImpactPanel");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "policyImpactPanel";
+    panel.className = "panel";
+    panel.innerHTML =
+      '<div class="panel-header"><div class="panel-title">Policy Impact Test</div></div>' +
+      '<div class="panel-body" id="policyImpactBody" style="font-size:12px;color:var(--text2)">No data.</div>';
+    roiTab.insertBefore(panel, roiTab.firstChild);
+    return panel;
+  }
+
+  function renderPolicyImpact() {
+    if (!hasState()) return;
+    const panel = ensurePolicyPanel();
+    if (!panel) return;
+    const body = document.getElementById("policyImpactBody");
+    if (!body) return;
+    const m = computePolicyImpactMetrics(state.reviews || []);
+    const plColor = m.deltaPl >= 0 ? "var(--green)" : "var(--red)";
+    const wrColor = m.deltaWr >= 0 ? "var(--green)" : "var(--red)";
+    body.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px">' +
+      '<div class="roi-cell"><div class="roi-label">Baseline P&L</div><div class="roi-value" style="color:var(--text)">$' +
+      m.baselinePl.toFixed(2) +
+      "</div></div>" +
+      '<div class="roi-cell"><div class="roi-label">Gated P&L</div><div class="roi-value" style="color:var(--text)">$' +
+      m.gatedPl.toFixed(2) +
+      "</div></div>" +
+      '<div class="roi-cell"><div class="roi-label">Δ P&L (Gated-Baseline)</div><div class="roi-value" style="color:' +
+      plColor +
+      '">$' +
+      m.deltaPl.toFixed(2) +
+      "</div></div>" +
+      '<div class="roi-cell"><div class="roi-label">Δ Win Rate</div><div class="roi-value" style="color:' +
+      wrColor +
+      '">' +
+      (m.deltaWr >= 0 ? "+" : "") +
+      m.deltaWr.toFixed(2) +
+      "%</div></div>" +
+      "</div>" +
+      '<div style="margin-top:8px;font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' +
+      "Policy " +
+      POLICY_VERSION +
+      " | Baseline n=" +
+      m.baselineN +
+      " | Gated n=" +
+      m.gatedN +
+      " (edge >= 3%)</div>";
+  }
+
+  function patchBuildSystemPrompt() {
+    if (typeof window.buildSystemPrompt !== "function") return;
+    const original = window.buildSystemPrompt;
+    window.buildSystemPrompt = function buildSystemPromptPatched() {
+      const base = original();
+      const reviews = hasState() ? state.reviews || [] : [];
+      const m = computePolicyImpactMetrics(reviews);
+      const appendix =
+        "\n\nDETERMINISTIC PROFITABILITY GUARDRAILS\n" +
+        "- Reject system picks below 3% edge.\n" +
+        "- Block double exposure in same game+market when active bet exists.\n" +
+        "- Respect min bet and remaining daily budget at entry.\n" +
+        "- Include implied probability, model probability, EV%, and Kelly suggestion when odds are valid.\n" +
+        "- Prefer no bet over low-confidence bet.\n\n" +
+        "POLICY IMPACT SNAPSHOT (" +
+        POLICY_VERSION +
+        "): baseline PL $" +
+        m.baselinePl.toFixed(2) +
+        " vs gated PL $" +
+        m.gatedPl.toFixed(2) +
+        " (delta $" +
+        m.deltaPl.toFixed(2) +
+        ").";
+      return base + appendix;
+    };
+  }
+
+  function patchTryLocalCommand() {
+    window.tryLocalCommand = function tryLocalCommand(msg) {
+      if (!hasState()) return "State unavailable.";
+      const raw = String(msg || "").trim();
+      const lower = raw.toLowerCase();
+
+      if (/^(?:status|balance)\b/.test(lower)) {
+        const snap = getRemainingBudgetSnapshot() || { budget: 0, atRisk: 0, remaining: 0 };
+        return (
+          "**STATUS**\n" +
+          "Bankroll: $" +
+          (Number(state.bankroll) || 0).toFixed(2) +
+          "\nDaily budget: $" +
+          snap.budget +
+          "\nAt risk: $" +
+          snap.atRisk +
+          "\nRemaining: $" +
+          snap.remaining
+        );
+      }
+
+      const bankrollMatch = raw.match(/^(?:set\s+)?bankroll[:\s]+\$?([\d.]+)/i);
+      if (bankrollMatch) {
+        const nb = parseFloat(bankrollMatch[1]);
+        if (Number.isFinite(nb) && nb > 0) {
+          state.bankroll = round2(nb);
+          if (typeof saveState === "function") saveState();
+          if (typeof updateDisplays === "function") updateDisplays();
+          return "✓ Bankroll set to $" + state.bankroll.toFixed(2);
+        }
+        return "Invalid bankroll value.";
+      }
+
+      const resultMatch = raw.match(/^(?:confirm|result)[:\s]+(.+?)\s+(won|lost|win|loss|push)\s*$/i);
+      if (resultMatch) {
+        const gameStr = resultMatch[1].trim().toUpperCase();
+        const result = resultMatch[2].toLowerCase().replace("win", "won").replace("loss", "lost");
+        const bet = (state.bets || []).find((b) => {
+          const g = String(b.game || "").toUpperCase();
+          const p = String(b.pick || "").toUpperCase();
+          return g.includes(gameStr) || p.includes(gameStr);
+        });
+        if (!bet) return 'Could not find bet for "' + gameStr + '"';
+        if (typeof window.updateBetResult === "function") {
+          window.updateBetResult(bet.id, result);
+        } else {
+          bet.status = result;
+        }
+        return "✓ " + (bet.game || "Bet") + " marked " + result.toUpperCase();
+      }
+
+      if (/^bet:/i.test(raw)) {
+        const body = raw.slice(raw.indexOf(":") + 1).trim();
+        const parts = body.split("|").map((p) => p.trim()).filter(Boolean);
+        if (parts.length < 4) {
+          return (
+            "Invalid bet command.\nUse:\n" +
+            "bet: GAME | PICK | STAKE | STATUS | SOURCE | ODDS | EDGE% | LEAGUE | MARKET"
+          );
+        }
+
+        const bet = {
+          id: Date.now(),
+          date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          game: parts[0] || "",
+          pick: parts[1] || "",
+          stake: parseFloat(parts[2]) || 0,
+          status: String(parts[3] || "placed").toLowerCase(),
+          source: String(parts[4] || "my").toLowerCase(),
+          odds: parts[5] || "-110",
+          edge: parts[6] || "",
+          league: parts[7] || "NHL",
+          market: parts[8] || "Total",
+        };
+
+        const gate = validateBetForPolicy(bet);
+        if (!gate.ok) return "Bet blocked by policy:\n- " + gate.errors.join("\n- ");
+
+        bet.policyVersion = POLICY_VERSION;
+        bet.impliedProb = gate.diagnostics.impliedProbPct;
+        bet.modelProb = gate.diagnostics.modelProbPct;
+        bet.evPct = gate.diagnostics.evPct;
+        bet.kellyStake = gate.diagnostics.suggestedKellyStake;
+
+        state.bets.push(bet);
+
+        if (SETTLED_STATUSES.has(bet.status)) {
+          const pnl = pnlFromResult(bet, bet.status);
+          state.bankroll = round2((Number(state.bankroll) || 0) + pnl);
+        }
+
+        if (typeof saveState === "function") saveState();
+        if (typeof updateDisplays === "function") updateDisplays();
+        return (
+          "✓ Logged: " +
+          bet.game +
+          " — " +
+          bet.pick +
+          " $" +
+          bet.stake +
+          " " +
+          bet.status.toUpperCase() +
+          "\nBankroll: $" +
+          (Number(state.bankroll) || 0).toFixed(2)
+        );
+      }
+
+      return null;
+    };
+  }
+
+  function patchAppendMsg() {
+    window.appendMsg = function appendMsg(role, text) {
+      const container = document.getElementById("chatMessages");
+      if (!container) return;
+      const div = document.createElement("div");
+      div.className = "msg msg-" + role;
+
+      const safe = String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const formatted = safe
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/`([^`]+)`/g, "<code style=\"background:var(--bg4);padding:1px 4px;border-radius:2px;font-family:'Space Mono',monospace;font-size:10px\">$1</code>")
+        .replace(/={3,}/g, "<hr style=\"border:none;border-top:1px solid var(--border);margin:6px 0\">")
+        .replace(/\n/g, "<br>");
+      div.innerHTML = formatted;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    };
+  }
+
+  function patchUpdateDisplaysHook() {
+    if (typeof window.updateDisplays !== "function") return;
+    const original = window.updateDisplays;
+    window.updateDisplays = function updateDisplaysPatched() {
+      original();
+      renderPolicyImpact();
+    };
+  }
+
+  // Expose deterministic helpers for debugging/tests.
+  window.edgeProfitMath = {
+    parseAmericanOdds,
+    impliedProbabilityFromAmerican,
+    decimalOddsFromAmerican,
+    removeVigTwoWay,
+    expectedValuePerUnitStake,
+    fractionalKellyStake,
+    validateBetForPolicy,
+    computePolicyImpactMetrics,
+  };
+
+  patchAddBet();
+  patchUpdateBetResult();
+  patchAddReview();
+  patchBuildSystemPrompt();
+  patchTryLocalCommand();
+  patchAppendMsg();
+  patchUpdateDisplaysHook();
+  renderPolicyImpact();
+})();
+</script>
+
 </body>
 </html>
