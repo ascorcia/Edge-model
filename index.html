@@ -811,6 +811,8 @@ body {
         <div class="stat-box"><div class="stat-label">Daily Budget</div><div class="stat-value" id="budgetStat">$64</div></div>
         <div class="stat-box"><div class="stat-label">At Risk</div><div class="stat-value yellow" id="riskStat">$0</div></div>
         <div class="stat-box"><div class="stat-label">Remaining</div><div class="stat-value green" id="remainStat">$64</div></div>
+        <div class="stat-box"><div class="stat-label">Weekly Used</div><div class="stat-value yellow" id="weeklyUsedStat">$83</div></div>
+        <div class="stat-box"><div class="stat-label">Weekly Cap</div><div class="stat-value" id="weeklyCapStat">—</div></div>
       </div>
 
       <div id="weeklyWarning" class="alert alert-warning tab-hidden">⚠️ Weekly exposure cap approaching. Monitor total exposure.</div>
@@ -1373,6 +1375,7 @@ function getDefaultState() {
     weeklyPct: 60,
     minBet: 10,
     weeklyExposure: 83,
+    weekStart: '2026-03-22',
     bets: [
       { id:1, date:'Mar 22', game:'BOS vs MIN', pick:'UNDER 221.5', odds:'-110', stake:11, edge:'27.6%', status:'won', league:'NBA', market:'Total' },
       { id:2, date:'Mar 22', game:'FLA vs IOWA', pick:'OVER 145.5', odds:'-110', stake:11, edge:'8.4%', status:'lost', league:'NCAA', market:'Total' },
@@ -1658,10 +1661,26 @@ function updateDisplays() {
   set('riskStat', '$' + atRisk.toFixed(0));
   set('remainStat', '$' + remain.toFixed(0));
 
+  // Weekly exposure
+  const weeklyCap = Math.floor(br * state.weeklyPct / 100);
+  const weeklyUsed = state.weeklyExposure || 0;
+  const weeklyRemain = Math.max(0, weeklyCap - weeklyUsed);
+  set('weeklyUsedStat', '$' + weeklyUsed.toFixed(0));
+  set('weeklyCapStat', '$' + weeklyRemain.toFixed(0) + ' left');
+
+  // Week dates for display
+  const ws = state.weekStart || '2026-03-22';
+  const wsDate = new Date(ws + 'T00:00:00');
+  const weDate = new Date(wsDate); weDate.setDate(weDate.getDate() + 6);
+  const fmt = d => d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const weekLabel = `Week ${fmt(wsDate)}–${fmt(weDate)}`;
+  const weekEl = document.getElementById('weeklyUsedStat');
+  if (weekEl) weekEl.title = weekLabel;
+
   const fw = document.getElementById('floorWarning');
   const ww = document.getElementById('weeklyWarning');
   if (fw) fw.classList.toggle('tab-hidden', br > state.floor + 20);
-  if (ww) ww.classList.toggle('tab-hidden', (state.weeklyExposure||0) < br * state.weeklyPct / 100 * 0.8);
+  if (ww) ww.classList.toggle('tab-hidden', weeklyUsed < weeklyCap * 0.8);
 
   renderActiveBets();
   renderBetLog();
@@ -2112,6 +2131,50 @@ function confirmApiKey() {
 }
 
 // ============================================================
+// WEEKLY RESET — Sunday to Sunday
+// Week started Mar 22 2026 (Sunday).
+// At midnight ET every Sunday, weeklyExposure resets to 0
+// and weekStart advances by 7 days.
+// ============================================================
+function checkWeeklyReset() {
+  if (!state.weekStart) { state.weekStart = '2026-03-22'; }
+
+  const now = new Date();
+  // Convert to ET
+  const etOffset = -5; // EST (no DST adjustment needed for Mar)
+  const etNow = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * 60) * 60000);
+
+  const weekStartDate = new Date(state.weekStart + 'T00:00:00');
+  const daysSinceStart = Math.floor((etNow - weekStartDate) / (1000 * 60 * 60 * 24));
+
+  if (daysSinceStart >= 7) {
+    // Calculate how many full weeks have passed
+    const weeksPassed = Math.floor(daysSinceStart / 7);
+    const newWeekStart = new Date(weekStartDate);
+    newWeekStart.setDate(newWeekStart.getDate() + weeksPassed * 7);
+    const newWeekStartStr = newWeekStart.toISOString().split('T')[0];
+
+    // Only reset if we're actually in a new week
+    if (newWeekStartStr !== state.weekStart) {
+      state.weekStart = newWeekStartStr;
+      state.weeklyExposure = 0;
+      saveState();
+
+      // Show reset notification in chat
+      const container = document.getElementById('chatMessages');
+      if (container) {
+        const div = document.createElement('div');
+        div.className = 'msg msg-assistant';
+        div.style.cssText = 'background:rgba(76,217,138,.08);border-color:var(--green)';
+        div.innerHTML = `<span style="color:var(--green);font-size:11px;font-weight:700">✓ NEW WEEK</span><br><span style="font-size:11px;color:var(--text2)">Weekly exposure reset to $0. Week started ${newWeekStartStr}. New weekly cap: $${Math.floor(state.bankroll * state.weeklyPct / 100)}.</span>`;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+  }
+}
+
+// ============================================================
 // AUTO-LEARN ENGINE
 // Runs automatically after every confirmed system result.
 // Analyzes CLV direction, edge bucket performance, market
@@ -2292,6 +2355,15 @@ function buildSystemPrompt() {
     return er.length ? `  ${min}-${max<100?max+'%':'20%+'}: ${er.filter(r=>r.result==='WIN').length}W-${er.filter(r=>r.result==='LOSS').length}L | ${epl>=0?'+':''}$${epl.toFixed(0)}` : `  ${min}-${max<100?max+'%':'20%+'}: No results`;
   }).join('\n');
 
+  // Weekly data
+  const weeklyCap = Math.floor(br * state.weeklyPct / 100);
+  const weeklyUsed = state.weeklyExposure || 0;
+  const weeklyRemain = Math.max(0, weeklyCap - weeklyUsed);
+  const ws = state.weekStart || '2026-03-22';
+  const wsDate = new Date(ws + 'T00:00:00');
+  const weDate = new Date(wsDate); weDate.setDate(weDate.getDate() + 6);
+  const fmtD = d => d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+
   return `You are EDGE MODEL v3, a professional sports betting model. You operate with complete discipline, zero bias, and strict adherence to all 56 rules below. Every output leads with a SYSTEM BLOCK using === dividers, then plain words.
 
 CRITICAL INTEGRITY RULE: Never claim a capability that is not verifiable in the system. Never say "lessons integrated" unless they are in this prompt. Never say "bankroll updated" unless you output an ACTION_UPDATE_BANKROLL tag. Every statement must be true and verifiable.
@@ -2302,7 +2374,9 @@ CURRENT STATE
 Bankroll: $${br.toFixed(2)}
 Daily Budget (35%): $${budget}
 At Risk: $${atRisk}
-Remaining: $${remain}
+Remaining Today: $${remain}
+Week: ${fmtD(wsDate)} – ${fmtD(weDate)} (Sunday to Sunday)
+Weekly Exposure: $${weeklyUsed} used of $${weeklyCap} cap — $${weeklyRemain} remaining${weeklyRemain <= 0 ? ' — CAP REACHED, no more bets this week' : ''}
 System Record: ${wins}W-${losses}L | Total P&L: ${totalPL>=0?'+':''}$${totalPL.toFixed(2)}
 CLV Positive Rate: ${systemReviews.length ? Math.round(clvPos/systemReviews.length*100)+'%' : '—'}
 
@@ -2852,6 +2926,9 @@ function init() {
   renderLearnings();
   renderWatchList();
   updateDisplays();
+
+  // Check if weekly exposure needs to reset (Sunday to Sunday)
+  checkWeeklyReset();
 
   // Live scores — fetch immediately then every 30 seconds
   fetchAllScores();
