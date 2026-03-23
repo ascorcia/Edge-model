@@ -1154,6 +1154,39 @@ init();
     return bankroll * usedKelly;
   }
 
+  function getRecentSystemPerformance(sampleSize) {
+    if (!hasState() || !Array.isArray(state.reviews)) {
+      return { n: 0, clvRate: null, roiPct: null, wr: null };
+    }
+    const system = state.reviews.filter((r) => r && r.source !== "my");
+    const recent = system.slice(-Math.max(0, sampleSize || 25));
+    if (!recent.length) return { n: 0, clvRate: null, roiPct: null, wr: null };
+    const clvPos = recent.filter((r) => (parseFloat(r.clv) || 0) > 0).length;
+    const wins = recent.filter((r) => String(r.result || "").toUpperCase() === "WIN").length;
+    const totalStake = recent.reduce((sum, r) => sum + (parseFloat(r.stake) || 0), 0);
+    const totalPL = recent.reduce((sum, r) => sum + (parseFloat(r.pl) || 0), 0);
+    return {
+      n: recent.length,
+      clvRate: (clvPos / recent.length) * 100,
+      roiPct: totalStake > 0 ? (totalPL / totalStake) * 100 : null,
+      wr: (wins / recent.length) * 100,
+    };
+  }
+
+  function getDynamicKellyFraction() {
+    const perf = getRecentSystemPerformance(30);
+    if (perf.n < 8) return { fraction: 0.2, mode: "warmup", perf };
+    const clv = Number(perf.clvRate);
+    const roi = Number(perf.roiPct);
+    if ((Number.isFinite(clv) && clv < 45) || (Number.isFinite(roi) && roi < -5)) {
+      return { fraction: 0.1, mode: "defensive", perf };
+    }
+    if ((Number.isFinite(clv) && clv > 55) && (Number.isFinite(roi) && roi > 2)) {
+      return { fraction: 0.3, mode: "aggressive", perf };
+    }
+    return { fraction: 0.2, mode: "normal", perf };
+  }
+
   function isSystemPick(bet) {
     return !bet.source || bet.source === "system";
   }
@@ -1220,12 +1253,15 @@ init();
     let modelProb = null;
     let evPct = null;
     let kellyStake = null;
+    let riskMode = null;
     if (implied !== null && edgePct !== null) {
       modelProb = Math.max(0.01, Math.min(0.99, implied + edgePct / 100));
       const ev = expectedValuePerUnitStake(modelProb, amer);
       if (Number.isFinite(ev)) evPct = ev * 100;
       if (hasState()) {
-        const k = fractionalKellyStake(Number(state.bankroll) || 0, modelProb, amer, 0.25);
+        const dyn = getDynamicKellyFraction();
+        riskMode = dyn.mode;
+        const k = fractionalKellyStake(Number(state.bankroll) || 0, modelProb, amer, dyn.fraction);
         if (Number.isFinite(k)) kellyStake = k;
       }
       if (Number.isFinite(evPct) && evPct <= 0 && isSystemPick(bet)) {
@@ -1233,6 +1269,11 @@ init();
       }
     } else if (isSystemPick(bet)) {
       warnings.push("Could not compute deterministic EV (invalid/missing odds or edge).");
+    }
+    if (Number.isFinite(kellyStake) && stake > 0 && stake > kellyStake * 1.75) {
+      warnings.push(
+        "Stake is much larger than suggested Kelly (" + kellyStake.toFixed(2) + ")."
+      );
     }
 
     return {
@@ -1244,6 +1285,7 @@ init();
         modelProbPct: modelProb === null ? null : modelProb * 100,
         evPct,
         suggestedKellyStake: kellyStake,
+        riskMode,
       },
     };
   }
@@ -1478,13 +1520,16 @@ init();
       const base = original();
       const reviews = hasState() ? state.reviews || [] : [];
       const m = computePolicyImpactMetrics(reviews);
+      const perf = getRecentSystemPerformance(30);
+      const dyn = getDynamicKellyFraction();
       const appendix =
         "\n\nDETERMINISTIC PROFITABILITY GUARDRAILS\n" +
         "- Reject system picks below 3% edge.\n" +
         "- Block double exposure in same game+market when active bet exists.\n" +
         "- Respect min bet and remaining daily budget at entry.\n" +
         "- Include implied probability, model probability, EV%, and Kelly suggestion when odds are valid.\n" +
-        "- Prefer no bet over low-confidence bet.\n\n" +
+        "- Prefer no bet over low-confidence bet.\n" +
+        "- Kelly fraction mode is dynamic: defensive/normal/aggressive based on recent CLV and ROI.\n\n" +
         "POLICY IMPACT SNAPSHOT (" +
         POLICY_VERSION +
         "): baseline PL $" +
@@ -1493,8 +1538,193 @@ init();
         m.gatedPl.toFixed(2) +
         " (delta $" +
         m.deltaPl.toFixed(2) +
+        "). Recent form (n=" +
+        perf.n +
+        "): CLV+ " +
+        (Number.isFinite(perf.clvRate) ? perf.clvRate.toFixed(1) + "%" : "—") +
+        ", ROI " +
+        (Number.isFinite(perf.roiPct) ? perf.roiPct.toFixed(1) + "%" : "—") +
+        ", Kelly mode " +
+        dyn.mode +
         ").";
       return base + appendix;
+    };
+  }
+
+  function openBetFormWithPrefill(pickObj) {
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value == null ? "" : String(value);
+    };
+    const tab = document.getElementById("tab-betlog");
+    document.querySelectorAll(".content [id^='tab-']").forEach((el) => el.classList.add("tab-hidden"));
+    if (tab) tab.classList.remove("tab-hidden");
+    document.querySelectorAll(".nav-tab").forEach((el) => el.classList.remove("active"));
+    const betlogBtn = Array.from(document.querySelectorAll(".nav-tab")).find((el) =>
+      (el.textContent || "").toUpperCase().includes("BET LOG")
+    );
+    if (betlogBtn) betlogBtn.classList.add("active");
+    const form = document.getElementById("addBetForm");
+    if (form) form.classList.remove("tab-hidden");
+    setVal("betDate", new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    setVal("betGame", pickObj.game || "");
+    setVal("betPick", pickObj.pick || "");
+    setVal("betOdds", pickObj.odds || "-110");
+    setVal("betEdge", pickObj.edge || "");
+    if (Number.isFinite(pickObj.stake) && pickObj.stake > 0) setVal("betStake", pickObj.stake.toFixed(0));
+    const league = document.getElementById("betLeague");
+    if (league && pickObj.league) league.value = pickObj.league;
+    const source = document.getElementById("betSource");
+    if (source) source.value = "system";
+    refreshBetAssist();
+  }
+
+  function extractPicksFromText(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const out = [];
+    for (const line of lines) {
+      const gameMatch = line.match(/([A-Z]{2,4})\s*(?:@|vs\.?|v)\s*([A-Z]{2,4})/i);
+      const oddsMatch = line.match(/([+-]\d{3}|EVEN|PK|PICK)/i);
+      const edgeMatch = line.match(/(\d+(?:\.\d+)?)\s*%/i);
+      if (!gameMatch || !oddsMatch) continue;
+      const game = gameMatch[1].toUpperCase() + " vs " + gameMatch[2].toUpperCase();
+      const odds = oddsMatch[1].toUpperCase();
+      const edge = edgeMatch ? edgeMatch[1] + "%" : "";
+      let league = "NHL";
+      const up = line.toUpperCase();
+      if (up.includes("NBA")) league = "NBA";
+      if (up.includes("NCAA")) league = "NCAA";
+      out.push({
+        game,
+        pick: line.replace(/^[-*•]\s*/, ""),
+        odds,
+        edge,
+        league,
+      });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  function renderParsedPicks(picks) {
+    const container = document.getElementById("picksContainer");
+    if (!container || !Array.isArray(picks) || !picks.length) return;
+    const snap = getRemainingBudgetSnapshot() || { remaining: 0 };
+    const bankroll = hasState() ? Number(state.bankroll) || 0 : 0;
+
+    const cards = picks.map((p) => {
+      const edgePct = parsePercent(p.edge);
+      const amer = parseAmericanOdds(p.odds);
+      const implied = impliedProbabilityFromAmerican(amer);
+      const modelProb = implied !== null && edgePct !== null ? Math.max(0.01, Math.min(0.99, implied + edgePct / 100)) : null;
+      const dyn = getDynamicKellyFraction();
+      const kelly = modelProb !== null ? fractionalKellyStake(bankroll, modelProb, amer, dyn.fraction) : null;
+      const recStake = Number.isFinite(kelly) ? Math.max(hasState() ? Number(state.minBet) || 10 : 10, Math.min(kelly, snap.remaining)) : null;
+      const tier = edgePct !== null && edgePct >= 10 ? "t1" : "t2";
+      const ev = modelProb !== null ? expectedValuePerUnitStake(modelProb, amer) : null;
+      return (
+        '<div class="pick-card ' + tier + '">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px">' +
+        '<div class="pick-game">' + p.game + '</div>' +
+        '<span style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' + (p.league || "—") + "</span></div>" +
+        '<div style="color:var(--text2);font-size:12px;margin-bottom:8px">' + p.pick + "</div>" +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">Odds ' + p.odds + "</span>" +
+        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || "—") + "</span>" +
+        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((Number.isFinite(ev) && ev > 0) ? "var(--green)" : "var(--yellow)") + '">EV ' + (Number.isFinite(ev) ? (ev * 100).toFixed(2) + "%" : "—") + "</span>" +
+        "</div>" +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+        '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">Suggested stake: ' + (Number.isFinite(recStake) ? "$" + recStake.toFixed(0) : "—") + "</div>" +
+        '<button class="btn" style="font-size:9px;border-color:var(--green);color:var(--green)" data-pickfill="' + encodeURIComponent(JSON.stringify({ game: p.game, pick: p.pick, odds: p.odds, edge: p.edge, league: p.league, stake: recStake })) + '">Use in Bet Log</button>' +
+        "</div></div>"
+      );
+    });
+    container.innerHTML = cards.join("");
+    container.querySelectorAll("[data-pickfill]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        try {
+          const payload = JSON.parse(decodeURIComponent(btn.getAttribute("data-pickfill") || ""));
+          openBetFormWithPrefill(payload);
+        } catch (err) {
+          // no-op on malformed payload
+        }
+      });
+    });
+  }
+
+  function ensureBetAssistPanel() {
+    const form = document.getElementById("addBetForm");
+    const body = form ? form.querySelector(".panel-body") : null;
+    if (!body) return null;
+    let panel = document.getElementById("betAssistPanel");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "betAssistPanel";
+    panel.style.marginTop = "8px";
+    panel.style.padding = "8px";
+    panel.style.border = "1px solid var(--border2)";
+    panel.style.borderRadius = "4px";
+    panel.style.background = "var(--bg3)";
+    panel.innerHTML =
+      '<div style="font-family:\'Space Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">PROFIT ASSIST</div>' +
+      '<div id="betAssistContent" style="font-size:11px;color:var(--text2);line-height:1.6">Enter odds + edge to compute EV and suggested stake.</div>' +
+      '<div style="margin-top:6px"><button id="applyStakeBtn" class="btn" style="font-size:9px">Apply Suggested Stake</button></div>';
+    body.appendChild(panel);
+    const applyBtn = document.getElementById("applyStakeBtn");
+    if (applyBtn) {
+      applyBtn.addEventListener("click", () => {
+        const stakeInput = document.getElementById("betStake");
+        const suggested = Number(panel.getAttribute("data-suggested-stake"));
+        if (stakeInput && Number.isFinite(suggested) && suggested > 0) {
+          stakeInput.value = String(Math.round(suggested));
+          refreshBetAssist();
+        }
+      });
+    }
+    ["betOdds", "betEdge", "betStake", "betSource"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", refreshBetAssist);
+      if (el) el.addEventListener("change", refreshBetAssist);
+    });
+    refreshBetAssist();
+    return panel;
+  }
+
+  function refreshBetAssist() {
+    const panel = document.getElementById("betAssistPanel");
+    const content = document.getElementById("betAssistContent");
+    if (!panel || !content) return;
+    const odds = document.getElementById("betOdds")?.value || "";
+    const edge = document.getElementById("betEdge")?.value || "";
+    const stake = parseFloat(document.getElementById("betStake")?.value) || 0;
+    const source = document.getElementById("betSource")?.value || "system";
+    const temp = { game: "TMP", pick: "TMP", odds, stake, edge, source, market: "Total" };
+    const gate = validateBetForPolicy(temp);
+    const d = gate.diagnostics || {};
+    const suggested = Number(d.suggestedKellyStake);
+    panel.setAttribute("data-suggested-stake", Number.isFinite(suggested) ? String(suggested) : "");
+    const evTxt = Number.isFinite(d.evPct) ? d.evPct.toFixed(2) + "%" : "—";
+    const mkTxt = Number.isFinite(d.modelProbPct) ? d.modelProbPct.toFixed(1) + "%" : "—";
+    const sgTxt = Number.isFinite(suggested) ? "$" + suggested.toFixed(0) : "—";
+    const riskMode = d.riskMode || getDynamicKellyFraction().mode;
+    const err = gate.errors.length ? "<br><span style=\"color:var(--red)\">" + gate.errors[0] + "</span>" : "";
+    const warn = !gate.errors.length && gate.warnings.length ? "<br><span style=\"color:var(--yellow)\">" + gate.warnings[0] + "</span>" : "";
+    content.innerHTML =
+      "Model prob: <strong>" + mkTxt + "</strong> · EV: <strong>" + evTxt + "</strong> · Suggested stake: <strong>" + sgTxt + "</strong> · Mode: <strong>" + riskMode.toUpperCase() + "</strong>" +
+      err + warn;
+  }
+
+  function patchShowAddBetForm() {
+    window.showAddBetForm = function showAddBetForm() {
+      const form = document.getElementById("addBetForm");
+      if (form) form.classList.remove("tab-hidden");
+      const date = document.getElementById("betDate");
+      if (date) date.value = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      ensureBetAssistPanel();
+      refreshBetAssist();
     };
   }
 
@@ -1628,6 +1858,11 @@ init();
       div.innerHTML = formatted;
       container.appendChild(div);
       container.scrollTop = container.scrollHeight;
+
+      if (String(role) === "assistant") {
+        const picks = extractPicksFromText(text);
+        if (picks.length) renderParsedPicks(picks);
+      }
     };
   }
 
@@ -1658,7 +1893,9 @@ init();
   patchBuildSystemPrompt();
   patchTryLocalCommand();
   patchAppendMsg();
+  patchShowAddBetForm();
   patchUpdateDisplaysHook();
+  ensureBetAssistPanel();
   renderPolicyImpact();
 })();
 </script>
