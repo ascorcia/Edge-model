@@ -754,7 +754,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   </div>
   <div class="chat-input-area">
     <div class="chat-quick-btns">
-      <button class="quick-btn" onclick="quickSend('Run today\'s card — pull live scores, check all 3 leagues, build picks following all 57 rules')">Run card</button>
+      <button class="quick-btn" onclick="quickSend(&quot;Run today's card — pull live scores, check all 3 leagues, build picks following all 57 rules&quot;)">Run card</button>
       <button class="quick-btn" onclick="quickSend('Give me bankroll status and remaining budget for today')">Bankroll</button>
       <button class="quick-btn" onclick="quickSend('Run end-of-day review on all active bets and update bankroll')">EOD review</button>
       <button class="quick-btn" onclick="quickSend('What is my current watch list and what should I check before the next session?')">Watch list</button>
@@ -2217,7 +2217,7 @@ function init() {
   document.getElementById('settingDaily').value=state.dailyPct;
   document.getElementById('settingMinBet').value=state.minBet;
   renderBetLog();renderReviews();renderPasses();renderFailures();renderLearnings();renderWatchList();updateDisplays();
-  fetchAllScores();setInterval(fetchAllScores,30000);
+  fetchAllScores();window.__baseScoreInterval=setInterval(fetchAllScores,30000);
 }
 init();
 </script>
@@ -3728,28 +3728,83 @@ init();
     window.__edgeLive1sInstalled = true;
     const baseFetch = window.fetchAllScores;
     let inFlight = false;
-    window.fetchAllScores = async function safeFetchAllScores() {
+    let lastFetchAt = 0;
+    const LEADER_KEY = 'edge_live_leader_v1';
+    const LEADER_STALE_MS = 12000;
+    const MIN_FETCH_GAP_MS = 2500;
+    const leaderId = 'tab_' + Math.random().toString(36).slice(2);
+
+    if (window.__baseScoreInterval) {
+      clearInterval(window.__baseScoreInterval);
+      window.__baseScoreInterval = null;
+    }
+
+    function readLeader() {
+      try {
+        const raw = localStorage.getItem(LEADER_KEY);
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || !obj.id || !Number.isFinite(Number(obj.ts))) return null;
+        return { id: String(obj.id), ts: Number(obj.ts) };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeLeader(ts) {
+      try { localStorage.setItem(LEADER_KEY, JSON.stringify({ id: leaderId, ts: Number(ts) || Date.now() })); } catch (e) {}
+    }
+
+    function amLeader(ts) {
+      const nowTs = Number(ts) || Date.now();
+      const lead = readLeader();
+      if (!lead || (nowTs - lead.ts) > LEADER_STALE_MS || lead.id === leaderId) {
+        writeLeader(nowTs);
+        return true;
+      }
+      return false;
+    }
+
+    window.fetchAllScores = async function safeFetchAllScores(opts) {
+      const nowTs = Date.now();
+      const force = !!(opts && opts.force);
+      const leader = amLeader(nowTs);
+      const picksTab = document.getElementById('tab-picks');
+      const picksVisible = !!(picksTab && !picksTab.classList.contains('tab-hidden'));
+
+      if (!force && !leader) {
+        if (picksVisible) renderPicksTab();
+        return;
+      }
+      if (!force && (nowTs - lastFetchAt) < MIN_FETCH_GAP_MS) {
+        if (picksVisible) renderPicksTab();
+        return;
+      }
       if (inFlight) return;
+
       inFlight = true;
+      lastFetchAt = nowTs;
       try {
         await baseFetch();
         const seeded = seedPicksFromLiveScores(false);
-        const picksTab = document.getElementById('tab-picks');
-        const picksVisible = !!(picksTab && !picksTab.classList.contains('tab-hidden'));
         if (seeded || picksVisible) renderPicksTab();
       } finally {
         inFlight = false;
+        if (leader) writeLeader(Date.now());
       }
     };
+
     function tick() {
       const wait = document.visibilityState === 'visible' ? 1000 : 5000;
-      window.fetchAllScores().catch(function () {});
+      window.fetchAllScores({ force: false }).catch(function () {});
       setTimeout(tick, wait);
     }
     tick();
   }
 
   function installSidebarToggle() {
+    if (window.__edgeSidebarToggleInstalled) return;
+    window.__edgeSidebarToggleInstalled = true;
     const main = document.querySelector('.main');
     const sidebar = document.querySelector('.sidebar');
     if (!main || !sidebar) return;
@@ -3780,6 +3835,8 @@ init();
       btn.title = 'Toggle chat panel';
       btn.innerHTML = '<span class="toggle-arrow" id="toggleArrow">›</span>';
       main.appendChild(btn);
+    } else if (!btn.classList.contains('edge-sidebar-toggle')) {
+      btn.classList.add('edge-sidebar-toggle');
     }
 
     function applyState(collapsed) {
