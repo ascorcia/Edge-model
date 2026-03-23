@@ -943,5 +943,112 @@ fetchAllScores();setInterval(fetchAllScores,30000);
 init();
 </script>
 
+<script>
+// UI-only overrides: tab navigation + chat panel collapse.
+// Intentionally isolated from betting/prediction logic.
+(function () {
+  const CHAT_COLLAPSE_KEY = "edge_model_ui_chat_collapsed_v1";
+
+  function getMainLayout() {
+    return document.querySelector(".main");
+  }
+
+  function applySidebarState(collapsed) {
+    const sidebar = document.getElementById("chatSidebar");
+    const arrow = document.getElementById("toggleArrow");
+    const main = getMainLayout();
+    if (!sidebar || !arrow || !main) return;
+
+    sidebar.classList.toggle("collapsed", collapsed);
+    arrow.textContent = collapsed ? "‹" : "›";
+    main.style.gridTemplateColumns = collapsed ? "1fr 28px" : "1fr 380px";
+  }
+
+  function hideAllTabs() {
+    document.querySelectorAll(".content [id^='tab-']").forEach((el) => {
+      el.classList.add("tab-hidden");
+    });
+  }
+
+  window.showTab = function showTab(name, btn) {
+    hideAllTabs();
+    const tab = document.getElementById("tab-" + name);
+    if (tab) tab.classList.remove("tab-hidden");
+
+    document.querySelectorAll(".nav-tab").forEach((el) => el.classList.remove("active"));
+    if (btn) btn.classList.add("active");
+
+    if (name === "standings") {
+      try {
+        if (
+          typeof standingsCache !== "undefined" &&
+          typeof standingsLeague !== "undefined" &&
+          standingsCache &&
+          standingsCache[standingsLeague]
+        ) {
+          if (typeof renderStandingsView === "function") renderStandingsView();
+        } else if (typeof fetchStandings === "function") {
+          fetchStandings();
+        }
+      } catch (err) {
+        if (typeof fetchStandings === "function") fetchStandings();
+      }
+    }
+
+    if (name === "rules" && typeof renderRules === "function") {
+      renderRules();
+    }
+  };
+
+  window.toggleSidebar = function toggleSidebar() {
+    const sidebar = document.getElementById("chatSidebar");
+    if (!sidebar) return;
+    const collapsed = !sidebar.classList.contains("collapsed");
+    applySidebarState(collapsed);
+    localStorage.setItem(CHAT_COLLAPSE_KEY, collapsed ? "1" : "0");
+  };
+
+  // Keep logo dropdown navigation functional for tool tabs.
+  window.toggleLogoMenu = function toggleLogoMenu() {
+    const menu = document.getElementById("logoMenu");
+    const caret = document.getElementById("logoCaret");
+    if (!menu || !caret) return;
+    const isOpen = menu.classList.toggle("open");
+    caret.classList.toggle("open", isOpen);
+  };
+
+  window.logoNav = function logoNav(tabName) {
+    const menu = document.getElementById("logoMenu");
+    const caret = document.getElementById("logoCaret");
+    if (menu) menu.classList.remove("open");
+    if (caret) caret.classList.remove("open");
+
+    hideAllTabs();
+    const tab = document.getElementById("tab-" + tabName);
+    if (tab) tab.classList.remove("tab-hidden");
+
+    document.querySelectorAll(".nav-tab").forEach((el) => el.classList.remove("active"));
+    if (tabName === "rules" && typeof renderRules === "function") renderRules();
+  };
+
+  document.addEventListener("click", (e) => {
+    const wrap = document.getElementById("logoWrap");
+    if (!wrap || wrap.contains(e.target)) return;
+    const menu = document.getElementById("logoMenu");
+    const caret = document.getElementById("logoCaret");
+    if (menu) menu.classList.remove("open");
+    if (caret) caret.classList.remove("open");
+  });
+
+  // Restore chat-panel collapsed state on load.
+  const saved = localStorage.getItem(CHAT_COLLAPSE_KEY);
+  if (saved === "1") {
+    applySidebarState(true);
+  } else {
+    applySidebarState(false);
+  }
+})();
+</script>
+
 </body>
 </html>
