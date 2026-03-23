@@ -2090,6 +2090,7 @@ init();
 (function () {
   const STORAGE_KEY = 'edge_model_v4';
   const DAILY_KEY = 'dailyPicks';
+  const SCORE_DAY_KEY = 'edge_score_day_v1';
 
   function getState() {
     if (typeof window.state === 'object' && window.state) return window.state;
@@ -2114,6 +2115,43 @@ init();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return y + '-' + m + '-' + day;
+  }
+
+  function getOperationalBaseDate() {
+    const now = new Date();
+    const d = new Date(now);
+    const mins = now.getHours() * 60 + now.getMinutes();
+    if (mins < 150) d.setDate(d.getDate() - 1); // switch "today" at 2:30am
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function toScoreDateKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return '' + y + m + day;
+  }
+
+  function fromScoreDateKey(key) {
+    const s = String(key || '');
+    if (!/^\d{8}$/.test(s)) return null;
+    const y = parseInt(s.slice(0, 4), 10);
+    const m = parseInt(s.slice(4, 6), 10);
+    const d = parseInt(s.slice(6, 8), 10);
+    const out = new Date(y, m - 1, d);
+    out.setHours(0, 0, 0, 0);
+    return out;
+  }
+
+  function scoreDateLabel(d, base) {
+    const dd = new Date(d);
+    const b = new Date(base);
+    const diff = Math.round((dd - b) / 86400000);
+    if (diff === 0) return 'TODAY';
+    if (diff === 1) return 'TOMORROW';
+    if (diff === -1) return 'YESTERDAY';
+    return dd.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
   }
 
   function ensureDailyPicks() {
@@ -2233,6 +2271,104 @@ init();
     if (src) src.value = 'system';
   }
 
+  function normToken(v) {
+    return String(v || '').toUpperCase().replace(/[^A-Z]/g, '');
+  }
+
+  function parseTeamsFromGame(game) {
+    const m = String(game || '').toUpperCase().match(/([A-Z]{2,4})\s*(?:VS|@|V)\s*([A-Z]{2,4})/);
+    if (!m) return [];
+    return [normToken(m[1]), normToken(m[2])];
+  }
+
+  function findScoreContextForPick(p) {
+    const teams = parseTeamsFromGame(p.game);
+    if (teams.length < 2 || typeof window.espnScores !== 'object') return null;
+    const all = []
+      .concat(Array.isArray(espnScores.nhl) ? espnScores.nhl : [])
+      .concat(Array.isArray(espnScores.nba) ? espnScores.nba : [])
+      .concat(Array.isArray(espnScores.ncaa) ? espnScores.ncaa : []);
+    return all.find(function (g) {
+      const a = normToken(g.away);
+      const h = normToken(g.home);
+      return teams.includes(a) && teams.includes(h);
+    }) || null;
+  }
+
+  function teamStatSummary(team) {
+    const s = (window.state && state.teamStats && state.teamStats[team]) || null;
+    if (!s) return null;
+    const gp = Number(s.gp) || 0;
+    const w = Number(s.wins) || 0;
+    const l = Number(s.losses) || 0;
+    const pf = Number(s.scored) || 0;
+    const pa = Number(s.allowed) || 0;
+    return {
+      team: team,
+      record: w + '-' + l,
+      ppgFor: gp > 0 ? (pf / gp) : null,
+      ppgAgainst: gp > 0 ? (pa / gp) : null
+    };
+  }
+
+  function openPickModal(p, conf, ev) {
+    const old = document.getElementById('pickDetailModal');
+    if (old) old.remove();
+    const gameCtx = findScoreContextForPick(p);
+    const teams = parseTeamsFromGame(p.game);
+    const t1 = teams[0] ? teamStatSummary(teams[0]) : null;
+    const t2 = teams[1] ? teamStatSummary(teams[1]) : null;
+    const why = [];
+    const edge = parsePercent(p.edge);
+    if (edge !== null) {
+      if (edge >= 10) why.push('High model edge (' + edge.toFixed(1) + '%).');
+      else if (edge >= 3) why.push('Model edge clears minimum threshold (' + edge.toFixed(1) + '%).');
+      else why.push('Edge is below preferred threshold; treat as lower confidence.');
+    }
+    if (ev !== null) why.push('Estimated EV: ' + ev.toFixed(2) + '%.');
+    if (gameCtx) {
+      const st = gameCtx.status === 'inprogress' ? 'LIVE' : gameCtx.status === 'closed' ? 'FINAL' : 'SCHEDULED';
+      why.push('Live context: ' + st + ' — ' + (gameCtx.clock || ''));
+    }
+    if (!why.length) why.push('Insufficient structured data in pick text; manual review recommended.');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'pickDetailModal';
+    overlay.className = 'modal-overlay';
+    overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML =
+      '<div class="modal-box">' +
+      '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
+      '<div><div style="font-size:18px;font-weight:700;color:#fff">Pick Detail</div>' +
+      '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3);margin-top:4px">' + (p.league || '—') + ' · ' + conf + '</div></div>' +
+      '<button class="btn" onclick="document.getElementById(\'pickDetailModal\').remove()">CLOSE</button></div>' +
+      '<div style="padding:18px 20px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
+      '<div class="roi-cell"><div class="roi-label">GAME</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.game || '—') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">WHAT TO BET</div><div class="roi-value" style="font-size:12px;color:var(--green)">' + (p.pick || '—') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">LINE / ODDS</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.odds || '—') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">EDGE / EV</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.edge || '—') + ' / ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</div></div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px"><div style="font-family:\'Space Mono\',monospace;font-size:10px;letter-spacing:1px;color:var(--accent);margin-bottom:6px">WHY THE MODEL LIKES IT</div>' +
+      '<ul style="padding-left:18px;color:var(--text2);font-size:12px;line-height:1.6">' + why.map(function (w) { return '<li>' + w + '</li>'; }).join('') + '</ul></div>' +
+      '<div style="margin-bottom:14px"><div style="font-family:\'Space Mono\',monospace;font-size:10px;letter-spacing:1px;color:var(--accent);margin-bottom:6px">TEAM STATS (AUTO)</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      '<div class="roi-cell"><div class="roi-label">' + (t1 ? t1.team : (teams[0] || 'TEAM A')) + '</div><div class="roi-value" style="font-size:11px;color:var(--text)">' + (t1 ? ('REC ' + t1.record + ' · PF ' + (t1.ppgFor ? t1.ppgFor.toFixed(1) : '—') + ' · PA ' + (t1.ppgAgainst ? t1.ppgAgainst.toFixed(1) : '—')) : 'No confirmed data yet') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">' + (t2 ? t2.team : (teams[1] || 'TEAM B')) + '</div><div class="roi-value" style="font-size:11px;color:var(--text)">' + (t2 ? ('REC ' + t2.record + ' · PF ' + (t2.ppgFor ? t2.ppgFor.toFixed(1) : '—') + ' · PA ' + (t2.ppgAgainst ? t2.ppgAgainst.toFixed(1) : '—')) : 'No confirmed data yet') + '</div></div>' +
+      '</div></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn green" id="pickModalUseBet">USE IN BET LOG</button></div>' +
+      '</div></div>';
+    document.body.appendChild(overlay);
+    const useBtn = document.getElementById('pickModalUseBet');
+    if (useBtn) {
+      useBtn.onclick = function () {
+        openBetFormWithPrefill(p);
+        const m = document.getElementById('pickDetailModal');
+        if (m) m.remove();
+      };
+    }
+  }
+
   function renderPicksTab() {
     ensureDailyPicks();
     const c = document.getElementById('picksContainer');
@@ -2254,7 +2390,7 @@ init();
           else if (edge !== null && ev !== null && edge >= 3 && ev > 0) { conf = 'MODEL LIKES'; col = 'var(--blue)'; }
           const payload = encodeURIComponent(JSON.stringify(p));
           return (
-            '<div class="pick-card ' + ((edge || 0) >= 10 ? 't1' : 't2') + '">' +
+            '<div class="pick-card ' + ((edge || 0) >= 10 ? 't1' : 't2') + '" data-pickdetail="' + payload + '" style="cursor:pointer">' +
             '<div class="pick-game">' + (p.game || '—') + '</div>' +
             '<div style="font-size:12px;color:var(--text2);margin:6px 0 8px">' + (p.pick || '') + '</div>' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
@@ -2269,8 +2405,22 @@ init();
           );
         })
         .join('');
+    c.querySelectorAll('[data-pickdetail]').forEach(function (card) {
+      card.addEventListener('click', function () {
+        try {
+          const p = JSON.parse(decodeURIComponent(card.getAttribute('data-pickdetail') || '{}'));
+          const edge = parsePercent(p.edge);
+          const ev = evPct(p.edge, p.odds);
+          let conf = 'REVIEW';
+          if (edge !== null && ev !== null && edge >= 10 && ev >= 2) conf = 'HIGH CONVICTION';
+          else if (edge !== null && ev !== null && edge >= 3 && ev > 0) conf = 'MODEL LIKES';
+          openPickModal(p, conf, ev);
+        } catch (e) {}
+      });
+    });
     c.querySelectorAll('[data-pickfill]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
+      btn.addEventListener('click', function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
         try {
           openBetFormWithPrefill(JSON.parse(decodeURIComponent(btn.getAttribute('data-pickfill') || '{}')));
         } catch (e) {}
@@ -2326,6 +2476,121 @@ init();
         }]);
         renderPicksTab();
       }
+    };
+  }
+
+  function getSelectedScoreDateKey() {
+    let key = null;
+    try { key = localStorage.getItem(SCORE_DAY_KEY); } catch (e) {}
+    if (!key) key = toScoreDateKey(getOperationalBaseDate());
+    return key;
+  }
+
+  function setSelectedScoreDateKey(key) {
+    window.__selectedScoreDayKey = key;
+    try { localStorage.setItem(SCORE_DAY_KEY, key); } catch (e) {}
+  }
+
+  function buildScoreDateRange() {
+    const base = getOperationalBaseDate();
+    const out = [];
+    for (let i = -1; i <= 7; i += 1) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      out.push({ key: toScoreDateKey(d), date: d, label: scoreDateLabel(d, base) });
+    }
+    return out;
+  }
+
+  function installScoreDateNavigator() {
+    const tab = document.getElementById('tab-scores');
+    if (!tab) return;
+    if (document.getElementById('scoreDateStrip')) return;
+    const strip = document.createElement('div');
+    strip.id = 'scoreDateStrip';
+    strip.style.position = 'sticky';
+    strip.style.top = '0';
+    strip.style.zIndex = '60';
+    strip.style.background = 'var(--bg)';
+    strip.style.padding = '2px 0 8px';
+    strip.innerHTML = '<div id="scoreDateStripInner" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px"></div>';
+    tab.insertBefore(strip, tab.firstChild);
+
+    if (!document.getElementById('scoreDateStripStyle')) {
+      const st = document.createElement('style');
+      st.id = 'scoreDateStripStyle';
+      st.textContent = ".score-date-btn{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.5px;padding:5px 9px;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;color:var(--text3);cursor:pointer;white-space:nowrap}.score-date-btn.active{border-color:var(--green);color:var(--green)}";
+      document.head.appendChild(st);
+    }
+
+    function render() {
+      const inner = document.getElementById('scoreDateStripInner');
+      if (!inner) return;
+      const selected = window.__selectedScoreDayKey || getSelectedScoreDateKey();
+      const range = buildScoreDateRange();
+      inner.innerHTML = range
+        .map(function (r) {
+          return '<button class="score-date-btn ' + (r.key === selected ? 'active' : '') + '" data-scoreday="' + r.key + '">' + r.label + '</button>';
+        })
+        .join('');
+      inner.querySelectorAll('[data-scoreday]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const key = btn.getAttribute('data-scoreday');
+          if (!key) return;
+          setSelectedScoreDateKey(key);
+          render();
+          if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
+        });
+      });
+    }
+
+    window.renderScoreDateStrip = render;
+    render();
+  }
+
+  function installDateAwareScoreFetch() {
+    if (typeof window.fetchAllScores !== 'function' || typeof window.fetchLeague !== 'function' || typeof window.indexESPNGames !== 'function') return;
+    if (window.__dateAwareScoreFetchInstalled) return;
+    window.__dateAwareScoreFetchInstalled = true;
+
+    const baseEndpoints = (typeof window.ESPN_ENDPOINTS === 'object' && ESPN_ENDPOINTS) ? ESPN_ENDPOINTS : {
+      nhl: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
+      nba: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
+      ncaa: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
+    };
+
+    window.fetchAllScores = async function fetchAllScoresDateAware() {
+      const selected = window.__selectedScoreDayKey || getSelectedScoreDateKey();
+      const dayDate = fromScoreDateKey(selected) || getOperationalBaseDate();
+      const dayKey = toScoreDateKey(dayDate);
+      const dayHuman = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const withDate = function (u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dates=' + dayKey; };
+      const setStatus = function (msg, col) {
+        const s = document.getElementById('scoreStatus'); if (s) { s.textContent = msg; s.style.color = col; }
+        const t = document.getElementById('scoreTabStatus'); if (t) { t.textContent = msg; t.style.color = col; }
+      };
+
+      setStatus('Fetching ' + dayHuman + '...','var(--yellow)');
+      const [nhl, nba, ncaa] = await Promise.allSettled([
+        fetchLeague(withDate(baseEndpoints.nhl)),
+        fetchLeague(withDate(baseEndpoints.nba)),
+        fetchLeague(withDate(baseEndpoints.ncaa))
+      ]);
+      let ok = false;
+      if (nhl.status === 'fulfilled') { espnScores.nhl = indexESPNGames(nhl.value, 'NHL'); ok = true; }
+      if (nba.status === 'fulfilled') { espnScores.nba = indexESPNGames(nba.value, 'NBA'); ok = true; }
+      if (ncaa.status === 'fulfilled') { espnScores.ncaa = indexESPNGames(ncaa.value, 'NCAA'); ok = true; }
+      if (typeof window.renderScores === 'function') window.renderScores();
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+      const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      const lu = document.getElementById('lastUpdate'); if (lu) lu.textContent = ts;
+      if (ok) {
+        const total = (espnScores.nhl || []).length + (espnScores.nba || []).length + (espnScores.ncaa || []).length;
+        setStatus(dayHuman + ' · Updated ' + ts + ' · ' + total + ' games', 'var(--text3)');
+      } else {
+        setStatus('Could not reach ESPN for ' + dayHuman, 'var(--red)');
+      }
+      if (typeof window.renderScoreDateStrip === 'function') window.renderScoreDateStrip();
     };
   }
 
@@ -2404,10 +2669,14 @@ init();
 
   // init enhancements
   ensureDailyPicks();
+  setSelectedScoreDateKey(getSelectedScoreDateKey());
+  installScoreDateNavigator();
+  installDateAwareScoreFetch();
   bootstrapPicksFromChatHistory();
   patchAppendMsgForPicks();
   patchAddBetForPicks();
   renderPicksTab();
+  if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
   installLiveOneSecondSync();
   installSidebarToggle();
 })();
