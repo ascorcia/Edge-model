@@ -811,11 +811,8 @@ body {
         <div class="stat-box"><div class="stat-label">Daily Budget</div><div class="stat-value" id="budgetStat">$64</div></div>
         <div class="stat-box"><div class="stat-label">At Risk</div><div class="stat-value yellow" id="riskStat">$0</div></div>
         <div class="stat-box"><div class="stat-label">Remaining</div><div class="stat-value green" id="remainStat">$64</div></div>
-        <div class="stat-box"><div class="stat-label">Weekly Used</div><div class="stat-value yellow" id="weeklyUsedStat">$83</div></div>
-        <div class="stat-box"><div class="stat-label">Weekly Cap</div><div class="stat-value" id="weeklyCapStat">—</div></div>
       </div>
 
-      <div id="weeklyWarning" class="alert alert-warning tab-hidden">⚠️ Weekly exposure cap approaching. Monitor total exposure.</div>
       <div id="floorWarning" class="alert alert-error tab-hidden">🚨 Bankroll approaching floor ($100). Review before placing more bets.</div>
 
       <div class="panel">
@@ -1134,7 +1131,7 @@ body {
         <div class="rule-item"><span class="rule-num">10</span><span class="rule-text"><strong>No double exposure ever.</strong> Parlay legs entirely separate from singles on same card</span></div>
         <div class="rule-item"><span class="rule-num">11</span><span class="rule-text"><strong>Card built top down by edge %.</strong> Hard stop at budget. Never build then trim</span></div>
         <div class="rule-item"><span class="rule-num">12</span><span class="rule-text"><strong>0 bets = valid correct outcome.</strong> Never force picks or parlays</span></div>
-        <div class="rule-item"><span class="rule-num">13</span><span class="rule-text"><strong>Daily budget = 35% of bankroll.</strong> Weekly cap = 60%. Bankroll floor = $100</span></div>
+        <div class="rule-item"><span class="rule-num">13</span><span class="rule-text"><strong>Daily budget = 35% of current bankroll.</strong> Recalculates fresh every session. Bankroll floor = $100</span></div>
       </div>
       <div class="rule-section">
         <div class="rule-section-title">Edge Calculation</div>
@@ -1170,7 +1167,7 @@ body {
       <div class="rule-section">
         <div class="rule-section-title">End of Day & Session Review</div>
         <div class="rule-item"><span class="rule-num">30</span><span class="rule-text"><strong>End-of-day session review</strong> every night once all games end: W-L / P&L / CLV direction / Pass log reviewed / ROI updated</span></div>
-        <div class="rule-item"><span class="rule-num">31</span><span class="rule-text"><strong>Next session prep</strong> after session review: Bankroll updated / New budget / Weekly exposure remaining / Watch list / Injury news / Goalie confirmations / Sharp movement overnight</span></div>
+        <div class="rule-item"><span class="rule-num">31</span><span class="rule-text"><strong>Next session prep</strong> after session review: Bankroll updated / New daily budget calculated / Watch list built / Injury news / Goalie confirmations / Sharp movement overnight</span></div>
         <div class="rule-item"><span class="rule-num">32</span><span class="rule-text"><strong>Daily rule review.</strong> Changes only after 3 consecutive days of data confirming pattern</span></div>
       </div>
       <div class="rule-section">
@@ -1281,7 +1278,6 @@ body {
           <div class="input-row"><span class="input-label">Bankroll</span><input class="input" id="settingBankroll" type="number" placeholder="183.71"></div>
           <div class="input-row"><span class="input-label">Floor</span><input class="input" id="settingFloor" type="number" value="100"></div>
           <div class="input-row"><span class="input-label">Daily %</span><input class="input" id="settingDaily" type="number" value="35"></div>
-          <div class="input-row"><span class="input-label">Weekly %</span><input class="input" id="settingWeekly" type="number" value="60"></div>
           <div class="input-row"><span class="input-label">Min Bet</span><input class="input" id="settingMinBet" type="number" value="10"></div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="btn green" onclick="saveSettings()">SAVE SETTINGS</button>
@@ -1335,7 +1331,7 @@ body {
     <div class="chat-messages" id="chatMessages">
       <div class="msg msg-assistant">
         <strong>EDGE MODEL v3 ACTIVE</strong><br><br>
-        All 55 rules loaded. Bankroll: <strong style="color:var(--green)">$223.71</strong><br><br>
+        All 56 rules loaded. Bankroll: <strong style="color:var(--green)">$223.71</strong><br><br>
         <strong style="color:var(--yellow)">Works without internet:</strong><br>
         • <code style="background:var(--bg4);padding:1px 4px;border-radius:2px;font-size:10px">bet: GAME | PICK | $STAKE | won/lost | my/system</code><br>
         • <code style="background:var(--bg4);padding:1px 4px;border-radius:2px;font-size:10px">add parlay</code> — opens bet form<br>
@@ -1350,7 +1346,7 @@ body {
     </div>
     <div class="chat-input-area">
       <div class="chat-quick-btns">
-        <button class="quick-btn" onclick="quickSend('Run today\'s card — pull live scores, check all 3 leagues, build picks following all 55 rules')">Run card</button>
+        <button class="quick-btn" onclick="quickSend('Run today\'s card — pull live scores, check all 3 leagues, build picks following all 56 rules')">Run card</button>
         <button class="quick-btn" onclick="quickSend('Give me bankroll status and remaining budget for today')">Bankroll</button>
         <button class="quick-btn" onclick="quickSend('Run end-of-day review on all active bets and update bankroll')">EOD review</button>
         <button class="quick-btn" onclick="quickSend('What is my current watch list and what should I check before the next session?')">Watch list</button>
@@ -1372,10 +1368,7 @@ function getDefaultState() {
     bankroll: 223.71,
     floor: 100,
     dailyPct: 35,
-    weeklyPct: 60,
     minBet: 10,
-    weeklyExposure: 83,
-    weekStart: '2026-03-22',
     bets: [
       { id:1, date:'Mar 22', game:'BOS vs MIN', pick:'UNDER 221.5', odds:'-110', stake:11, edge:'27.6%', status:'won', league:'NBA', market:'Total' },
       { id:2, date:'Mar 22', game:'FLA vs IOWA', pick:'OVER 145.5', odds:'-110', stake:11, edge:'8.4%', status:'lost', league:'NCAA', market:'Total' },
@@ -1661,26 +1654,8 @@ function updateDisplays() {
   set('riskStat', '$' + atRisk.toFixed(0));
   set('remainStat', '$' + remain.toFixed(0));
 
-  // Weekly exposure
-  const weeklyCap = Math.floor(br * state.weeklyPct / 100);
-  const weeklyUsed = state.weeklyExposure || 0;
-  const weeklyRemain = Math.max(0, weeklyCap - weeklyUsed);
-  set('weeklyUsedStat', '$' + weeklyUsed.toFixed(0));
-  set('weeklyCapStat', '$' + weeklyRemain.toFixed(0) + ' left');
-
-  // Week dates for display
-  const ws = state.weekStart || '2026-03-22';
-  const wsDate = new Date(ws + 'T00:00:00');
-  const weDate = new Date(wsDate); weDate.setDate(weDate.getDate() + 6);
-  const fmt = d => d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  const weekLabel = `Week ${fmt(wsDate)}–${fmt(weDate)}`;
-  const weekEl = document.getElementById('weeklyUsedStat');
-  if (weekEl) weekEl.title = weekLabel;
-
   const fw = document.getElementById('floorWarning');
-  const ww = document.getElementById('weeklyWarning');
   if (fw) fw.classList.toggle('tab-hidden', br > state.floor + 20);
-  if (ww) ww.classList.toggle('tab-hidden', weeklyUsed < weeklyCap * 0.8);
 
   renderActiveBets();
   renderBetLog();
@@ -1711,7 +1686,6 @@ function addBet() {
     source: document.getElementById('betSource').value
   };
   if (!bet.game || !bet.pick) { alert('Game and Pick required'); return; }
-  if (bet.status === 'placed') state.weeklyExposure = (state.weeklyExposure||0) + bet.stake;
   state.bets.push(bet);
   saveState();
   updateDisplays();
@@ -2049,7 +2023,6 @@ function saveSettings() {
   if (!isNaN(br) && br > 0) state.bankroll = br;
   state.floor = parseFloat(document.getElementById('settingFloor').value) || 100;
   state.dailyPct = parseFloat(document.getElementById('settingDaily').value) || 35;
-  state.weeklyPct = parseFloat(document.getElementById('settingWeekly').value) || 60;
   state.minBet = parseFloat(document.getElementById('settingMinBet').value) || 10;
   saveState();
   updateDisplays();
@@ -2131,50 +2104,6 @@ function confirmApiKey() {
 }
 
 // ============================================================
-// WEEKLY RESET — Sunday to Sunday
-// Week started Mar 22 2026 (Sunday).
-// At midnight ET every Sunday, weeklyExposure resets to 0
-// and weekStart advances by 7 days.
-// ============================================================
-function checkWeeklyReset() {
-  if (!state.weekStart) { state.weekStart = '2026-03-22'; }
-
-  const now = new Date();
-  // Convert to ET
-  const etOffset = -5; // EST (no DST adjustment needed for Mar)
-  const etNow = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * 60) * 60000);
-
-  const weekStartDate = new Date(state.weekStart + 'T00:00:00');
-  const daysSinceStart = Math.floor((etNow - weekStartDate) / (1000 * 60 * 60 * 24));
-
-  if (daysSinceStart >= 7) {
-    // Calculate how many full weeks have passed
-    const weeksPassed = Math.floor(daysSinceStart / 7);
-    const newWeekStart = new Date(weekStartDate);
-    newWeekStart.setDate(newWeekStart.getDate() + weeksPassed * 7);
-    const newWeekStartStr = newWeekStart.toISOString().split('T')[0];
-
-    // Only reset if we're actually in a new week
-    if (newWeekStartStr !== state.weekStart) {
-      state.weekStart = newWeekStartStr;
-      state.weeklyExposure = 0;
-      saveState();
-
-      // Show reset notification in chat
-      const container = document.getElementById('chatMessages');
-      if (container) {
-        const div = document.createElement('div');
-        div.className = 'msg msg-assistant';
-        div.style.cssText = 'background:rgba(76,217,138,.08);border-color:var(--green)';
-        div.innerHTML = `<span style="color:var(--green);font-size:11px;font-weight:700">✓ NEW WEEK</span><br><span style="font-size:11px;color:var(--text2)">Weekly exposure reset to $0. Week started ${newWeekStartStr}. New weekly cap: $${Math.floor(state.bankroll * state.weeklyPct / 100)}.</span>`;
-        container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
-      }
-    }
-  }
-}
-
-// ============================================================
 // AUTO-LEARN ENGINE
 // Runs automatically after every confirmed system result.
 // Analyzes CLV direction, edge bucket performance, market
@@ -2184,31 +2113,38 @@ function checkWeeklyReset() {
 // ============================================================
 function autoLearn() {
   const systemReviews = state.reviews.filter(r => r.source !== 'my');
-  if (systemReviews.length < 2) return; // Need at least 2 results to find patterns
+  if (systemReviews.length < 3) return; // Minimum 3 system results before any pattern analysis
 
   const newLearnings = [];
   const today = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
   // PATTERN 1: CLV direction vs result correlation
-  const clvWins = systemReviews.filter(r => parseFloat(r.clv) > 0 && r.result === 'WIN').length;
-  const clvTotal = systemReviews.filter(r => !isNaN(parseFloat(r.clv))).length;
-  if (clvTotal >= 2) {
+  // Only write this if CLV data exists and sample is meaningful
+  const clvReviews = systemReviews.filter(r => !isNaN(parseFloat(r.clv)));
+  if (clvReviews.length >= 4) {
+    const clvWins = clvReviews.filter(r => parseFloat(r.clv) > 0 && r.result === 'WIN').length;
+    const clvTotal = clvReviews.length;
     const clvWinRate = Math.round(clvWins / clvTotal * 100);
     const existing = state.learnings.find(l => l.pattern && l.pattern.includes('CLV direction'));
-    if (!existing && clvWinRate >= 60) {
+    if (!existing) {
       newLearnings.push({
         id: Date.now() + 1,
         date: today,
-        pattern: `CLV direction predicts results — ${clvWinRate}% of positive CLV bets won`,
-        data: `${clvWins} of ${clvTotal} positive CLV system bets resulted in wins across ${systemReviews.length} total results.`,
-        app: 'Trust CLV as primary success metric. Positive CLV = edge is real regardless of result. Negative CLV = process was wrong even on wins.',
-        conf: clvTotal >= 6 ? 'confirmed' : 'provisional',
+        pattern: `CLV direction vs result: ${clvWinRate}% of positive-CLV bets won (${clvWins}/${clvTotal})`,
+        data: clvReviews.map(r => `${r.game} CLV:${r.clv} ${r.result}`).join(' | '),
+        app: 'CLV is the primary process metric. Track direction over time — not single sessions.',
+        conf: clvTotal >= 8 ? 'confirmed' : 'provisional',
         auto: true
       });
+    } else if (existing.auto) {
+      // Update with current data — no editorial, just numbers
+      existing.pattern = `CLV direction vs result: ${clvWinRate}% of positive-CLV bets won (${clvWins}/${clvTotal})`;
+      existing.data = clvReviews.map(r => `${r.game} CLV:${r.clv} ${r.result}`).join(' | ');
+      existing.conf = clvTotal >= 8 ? 'confirmed' : 'provisional';
     }
   }
 
-  // PATTERN 2: Edge bucket performance
+  // PATTERN 2: Edge bucket performance — minimum 5 per bucket before writing
   const buckets = [
     { label: '3-5%', min: 3, max: 5 },
     { label: '5-10%', min: 5, max: 10 },
@@ -2217,57 +2153,47 @@ function autoLearn() {
   ];
   buckets.forEach(b => {
     const br = systemReviews.filter(r => { const e = parseFloat(r.edge); return e >= b.min && e < b.max; });
-    if (br.length >= 2) {
+    if (br.length >= 5) { // Hard minimum — 2 results means nothing
       const wins = br.filter(r => r.result === 'WIN').length;
-      const wr = Math.round(wins / br.length * 100);
       const pl = br.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
-      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(b.label + ' edge'));
-      if (!existing) {
-        newLearnings.push({
-          id: Date.now() + Math.random(),
-          date: today,
-          pattern: `${b.label} edge bucket: ${wr}% win rate, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L across ${br.length} bets`,
-          data: br.map(r => `${r.game} ${r.pick} ${r.result} CLV:${r.clv}`).join(' | '),
-          app: pl > 0
-            ? `${b.label} edge plays are profitable. Continue sizing per rules.`
-            : `${b.label} edge plays are losing. Review whether edge calculation is accurate for this bucket.`,
-          conf: 'provisional',
-          auto: true
-        });
-      }
+      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(b.label + ' edge bucket'));
+      const entry = {
+        id: Date.now() + Math.random(),
+        date: today,
+        pattern: `${b.label} edge bucket: ${wins}W-${br.length-wins}L across ${br.length} bets, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`,
+        data: br.map(r => `${r.game} ${r.pick} ${r.result} CLV:${r.clv}`).join(' | '),
+        app: `${b.label} bucket result after ${br.length} bets. CLV direction is more meaningful than P&L at this sample size.`,
+        conf: br.length >= 10 ? 'confirmed' : 'provisional',
+        auto: true
+      };
+      if (!existing) newLearnings.push(entry);
+      else if (existing.auto) { Object.assign(existing, entry); }
     }
   });
 
-  // PATTERN 3: Market type performance
+  // PATTERN 3: Market type performance — minimum 5 per market
   ['Total','ML','Spread','Parlay'].forEach(mkt => {
     const mr = systemReviews.filter(r => r.market === mkt);
-    if (mr.length >= 2) {
+    if (mr.length >= 5) {
       const wins = mr.filter(r => r.result === 'WIN').length;
       const pl = mr.reduce((s,r) => s + (parseFloat(r.pl)||0), 0);
-      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(mkt + ' market'));
-      if (!existing) {
-        newLearnings.push({
-          id: Date.now() + Math.random(),
-          date: today,
-          pattern: `${mkt} market: ${wins}-${mr.length-wins} W-L, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`,
-          data: mr.map(r => `${r.game} ${r.result} CLV:${r.clv}`).join(' | '),
-          app: pl > 0 ? `${mkt} is profitable market. Process is working.` : `${mkt} is losing. Check if edge source is solid for this market type.`,
-          conf: 'provisional',
-          auto: true
-        });
-      } else {
-        // Update existing auto-learning with new data
-        if (existing.auto) {
-          existing.pattern = `${mkt} market: ${wins}-${mr.length-wins} W-L, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`;
-          existing.data = mr.map(r => `${r.game} ${r.result} CLV:${r.clv}`).join(' | ');
-          existing.app = pl > 0 ? `${mkt} is profitable. Process is working.` : `${mkt} is losing. Check edge source for this market type.`;
-          existing.conf = mr.length >= 6 ? 'confirmed' : 'provisional';
-        }
-      }
+      const existing = state.learnings.find(l => l.pattern && l.pattern.includes(mkt + ' market:'));
+      const entry = {
+        id: Date.now() + Math.random(),
+        date: today,
+        pattern: `${mkt} market: ${wins}W-${mr.length-wins}L across ${mr.length} bets, ${pl >= 0 ? '+' : ''}$${pl.toFixed(0)} P&L`,
+        data: mr.map(r => `${r.game} ${r.result} CLV:${r.clv}`).join(' | '),
+        app: `${mkt} market performance after ${mr.length} bets. Requires 15+ for rule-level confidence.`,
+        conf: mr.length >= 10 ? 'confirmed' : 'provisional',
+        auto: true
+      };
+      if (!existing) newLearnings.push(entry);
+      else if (existing.auto) { Object.assign(existing, entry); }
     }
   });
 
-  // PATTERN 4: Sharp money conflict — flag when sharp movement was noted and result was loss
+  // PATTERN 4: Sharp movement conflicts — flag any loss where sharp movement noted
+  // Minimum 1 is fine here — this is a process check not a statistical pattern
   const sharpLosses = systemReviews.filter(r =>
     r.result === 'LOSS' && r.lesson && /sharp|movement|moved/i.test(r.lesson)
   );
@@ -2279,10 +2205,13 @@ function autoLearn() {
         date: today,
         pattern: `Sharp movement against pick preceded ${sharpLosses.length} loss${sharpLosses.length>1?'es':''}`,
         data: sharpLosses.map(r => `${r.game} — ${r.lesson}`).join(' | '),
-        app: 'Rule 20 is non-negotiable. Any sharp movement 1+ point against pick within 2hrs = eliminate. This has already cost real money.',
-        conf: sharpLosses.length >= 2 ? 'confirmed' : 'provisional',
+        app: 'Rule 20: sharp movement 1+ point against pick within 2hrs = eliminate. Already cost real money.',
+        conf: sharpLosses.length >= 3 ? 'confirmed' : 'provisional',
         auto: true
       });
+    } else if (existing.auto) {
+      existing.pattern = `Sharp movement against pick preceded ${sharpLosses.length} loss${sharpLosses.length>1?'es':''}`;
+      existing.conf = sharpLosses.length >= 3 ? 'confirmed' : 'provisional';
     }
   }
 
@@ -2355,14 +2284,7 @@ function buildSystemPrompt() {
     return er.length ? `  ${min}-${max<100?max+'%':'20%+'}: ${er.filter(r=>r.result==='WIN').length}W-${er.filter(r=>r.result==='LOSS').length}L | ${epl>=0?'+':''}$${epl.toFixed(0)}` : `  ${min}-${max<100?max+'%':'20%+'}: No results`;
   }).join('\n');
 
-  // Weekly data
-  const weeklyCap = Math.floor(br * state.weeklyPct / 100);
-  const weeklyUsed = state.weeklyExposure || 0;
-  const weeklyRemain = Math.max(0, weeklyCap - weeklyUsed);
-  const ws = state.weekStart || '2026-03-22';
-  const wsDate = new Date(ws + 'T00:00:00');
-  const weDate = new Date(wsDate); weDate.setDate(weDate.getDate() + 6);
-  const fmtD = d => d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  // No weekly tracking — daily budget resets fresh every session
 
   return `You are EDGE MODEL v3, a professional sports betting model. You operate with complete discipline, zero bias, and strict adherence to all 56 rules below. Every output leads with a SYSTEM BLOCK using === dividers, then plain words.
 
@@ -2372,11 +2294,10 @@ CRITICAL INTEGRITY RULE: Never claim a capability that is not verifiable in the 
 CURRENT STATE
 ═══════════════════════════════════════
 Bankroll: $${br.toFixed(2)}
-Daily Budget (35%): $${budget}
-At Risk: $${atRisk}
-Remaining Today: $${remain}
-Week: ${fmtD(wsDate)} – ${fmtD(weDate)} (Sunday to Sunday)
-Weekly Exposure: $${weeklyUsed} used of $${weeklyCap} cap — $${weeklyRemain} remaining${weeklyRemain <= 0 ? ' — CAP REACHED, no more bets this week' : ''}
+Daily Budget (35% of bankroll): $${budget}
+At Risk today: $${atRisk}
+Remaining today: $${remain}
+Bankroll Floor: $${state.floor} — stop betting if bankroll hits this
 System Record: ${wins}W-${losses}L | Total P&L: ${totalPL>=0?'+':''}$${totalPL.toFixed(2)}
 CLV Positive Rate: ${systemReviews.length ? Math.round(clvPos/systemReviews.length*100)+'%' : '—'}
 
@@ -2435,7 +2356,7 @@ RULE 9: $10 minimum hard floor. Below $10 = eliminated.
 RULE 10: No double exposure. Parlay legs separate from singles.
 RULE 11: Card built top down by edge %. Hard stop at budget. Never build then trim.
 RULE 12: 0 bets = valid correct outcome. Never force picks.
-RULE 13: Daily budget = 35% bankroll. Weekly cap = 60%. Floor = $100.
+RULE 13: Daily budget = 35% of current bankroll. Recalculates fresh every session. Floor = $100.
 RULE 14: 3% minimum edge — no exceptions.
 RULE 15: Sample size min 15 games for T1. 10-14 = supporting. Under 10 = flagged. Show full season + recent window.
 RULE 16: SportsLine = supporting only. Never primary.
@@ -2515,7 +2436,7 @@ function quickSend(text) {
 function clearChat() {
   state.chatHistory = [];
   saveState();
-  document.getElementById('chatMessages').innerHTML = `<div class="msg msg-assistant"><strong>EDGE MODEL v3</strong><br>Chat cleared. All 55 rules still active. Bankroll: <strong style="color:var(--green)">$${state.bankroll.toFixed(2)}</strong></div>`;
+  document.getElementById('chatMessages').innerHTML = `<div class="msg msg-assistant"><strong>EDGE MODEL v3</strong><br>Chat cleared. All 56 rules active. Bankroll: <strong style="color:var(--green)">$${state.bankroll.toFixed(2)}</strong></div>`;
 }
 
 // ============================================================
@@ -2743,7 +2664,7 @@ function confirmPickFromChat(raw) {
     market: 'Total'
   };
   state.bets.push(bet);
-  state.weeklyExposure = (state.weeklyExposure||0) + bet.stake;
+
   saveState();
   updateDisplays();
   alert(`Logged as PLACED: $${bet.stake}`);
@@ -2915,7 +2836,6 @@ function init() {
   document.getElementById('settingBankroll').value = state.bankroll;
   document.getElementById('settingFloor').value = state.floor;
   document.getElementById('settingDaily').value = state.dailyPct;
-  document.getElementById('settingWeekly').value = state.weeklyPct;
   document.getElementById('settingMinBet').value = state.minBet;
 
   // Render all
@@ -2926,9 +2846,6 @@ function init() {
   renderLearnings();
   renderWatchList();
   updateDisplays();
-
-  // Check if weekly exposure needs to reset (Sunday to Sunday)
-  checkWeeklyReset();
 
   // Live scores — fetch immediately then every 30 seconds
   fetchAllScores();
