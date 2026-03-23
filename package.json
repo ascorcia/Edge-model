@@ -1,0 +1,8 @@
+{
+  "name": "edge-model-tooling",
+  "private": true,
+  "scripts": {
+    "check:preflight": "node ./tools/preflight-check.js",
+    "preflight": "node ./tools/preflight-check.js"
+  }
+}

@@ -765,6 +765,22 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 </div>
 </div><!-- end main -->
 
+<!--
+  CODE ORGANIZATION MAP (single-file architecture)
+  1) UI/STYLE LAYER:
+     - <style> block (layout, typography, panels, nav, cards, sidebar)
+  2) CORE APP + DATA + ENGINE-SAFE OPERATIONS:
+     - first <script> block:
+       tab nav, scores fetch/render, standings fetch/render, logs/ROI, chat commands,
+       state load/save, rules, reviews, bankroll/accounting, init()
+  3) ENHANCEMENT/ISOLATION LAYER (safe overrides):
+     - second <script> block:
+       daily picks sync/sort, date-strip/day-aware scores, interactive modals,
+       march-madness view, sidebar semicircle guardrails.
+  4) PRE-SHIP AUTO-CHECK:
+     - run: npm run check:preflight
+     - verifies syntax + critical runtime/UI hooks before delivery.
+-->
 <script>
 // ════════════════════════════════════════════════════════
 // STATE
