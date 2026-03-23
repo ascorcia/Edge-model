@@ -107,10 +107,6 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
-<style>
-.team-row:hover { background-color: var(--color-canvas-subtle); cursor: pointer; }
-.Overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; background: var(--color-canvas-default); border: 1px solid var(--color-border-default); box-shadow: var(--color-shadow-large); max-width: 600px; width: 90%; padding: 16px; border-radius: 6px; color: var(--color-fg-default); }
-</style>
 
 /* NAV TABS */
 .nav {
@@ -2860,58 +2856,6 @@ function init() {
 }
 
 init();
-</script>
-</body>
-</html>
-<div id="standings-container" class="TabPanel" style="padding: 20px;" hidden>
-  <div class="Subhead">
-    <div class="Subhead-heading">League Standings</div>
-    <div class="Subhead-actions"><input type="text" id="teamSearch" class="form-control input-sm" placeholder="Search teams..."></div>
-  </div>
-  <div class="Box Box--condensed mt-3">
-    <div class="Box-header d-flex flex-items-center">
-      <div class="col-6">Team</div><div class="col-3 text-center">Record</div><div class="col-3 text-right">Details</div>
-    </div>
-    <div id="standings-list"></div>
-  </div>
-</div>
-
-<div id="interaction-overlay" class="Overlay" hidden>
-  <div class="d-flex flex-justify-between mb-2">
-    <h1 id="overlay-title" class="f3">Details</h1>
-    <button class="btn-octicon" type="button" onclick="document.getElementById('interaction-overlay').hidden = true;">X</button>
-  </div>
-  <div id="overlay-body"></div>
-</div>
-
-<script>
-const UI_SYSTEM = {
-    initStandings: function(teams) {
-        const list = document.getElementById('standings-list');
-        if(!list) return;
-        list.innerHTML = teams.map(team => `
-            <div class="Box-row d-flex flex-items-center team-row" onclick="UI_SYSTEM.showTeamDetails('${team.name}')">
-                <div class="col-6 font-weight-bold">${team.name}</div>
-                <div class="col-3 text-center">${team.record || '0-0-0'}</div>
-                <div class="col-3 text-right"><span class="Label">View</span></div>
-            </div>`).join('');
-    },
-    showTeamDetails: function(teamName) {
-        document.getElementById('overlay-title').innerText = teamName;
-        document.getElementById('overlay-body').innerHTML = `
-            <div class="Box p-3">
-                <p><strong>Roster:</strong> Loading...</p>
-                <p><strong>Upcoming Games:</strong> Loading...</p>
-                <p><strong>Playoff Chance:</strong> Calculating...</p>
-                <p><strong>Live Stats (SOG/Hits/PP):</strong> Waiting for data...</p>
-            </div>`;
-        document.getElementById('interaction-overlay').hidden = false;
-    }
-};
-document.getElementById('teamSearch').addEventListener('input', (e) => {
-    const q = e.target.value.toLowerCase();
-    document.querySelectorAll('.team-row').forEach(r => r.style.display = r.innerText.toLowerCase().includes(q) ? 'flex' : 'none');
-});
 </script>
 </body>
 </html>
