@@ -895,7 +895,21 @@ function indexESPNGames(data, league) {
     if(done) clock='Final';
     else if(live) clock=st.displayClock||'';
     else { try{clock=new Date(ev.date).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'})+' ET';}catch(e){} }
-    return {league,away:away.team?.abbreviation,home:home.team?.abbreviation,awayFull:away.team?.displayName,homeFull:home.team?.displayName,scoreAway:live||done?parseInt(away.score||0):null,scoreHome:live||done?parseInt(home.score||0):null,status:done?'closed':live?'inprogress':'scheduled',clock,period:live?(league==='NHL'?'P'+(st.period||''):'Q'+(st.quarter||'')):'',eventId:ev.id};
+    return {
+      league,
+      away:away.team?.abbreviation,
+      home:home.team?.abbreviation,
+      awayFull:away.team?.displayName,
+      homeFull:home.team?.displayName,
+      awayTeamId:away.team?.id||'',
+      homeTeamId:home.team?.id||'',
+      scoreAway:live||done?parseInt(away.score||0):null,
+      scoreHome:live||done?parseInt(home.score||0):null,
+      status:done?'closed':live?'inprogress':'scheduled',
+      clock,
+      period:live?(league==='NHL'?'P'+(st.period||''):'Q'+(st.quarter||'')):'',
+      eventId:ev.id
+    };
   }).filter(Boolean);
 }
 
@@ -904,7 +918,9 @@ async function fetchAllScores() {
     const s=document.getElementById('scoreStatus'); if(s){s.textContent=msg;s.style.color=col;}
     const t=document.getElementById('scoreTabStatus'); if(t){t.textContent=msg;t.style.color=col;}
   };
-  setStatus('Fetching...','var(--yellow)');
+  // avoid flashing status color on each refresh
+  const cur=document.getElementById('scoreStatus');
+  if(cur&&!cur.textContent) setStatus('Fetching...','var(--text3)');
   const [nhl,nba,ncaa]=await Promise.allSettled([fetchLeague(ESPN_ENDPOINTS.nhl),fetchLeague(ESPN_ENDPOINTS.nba),fetchLeague(ESPN_ENDPOINTS.ncaa)]);
   let ok=false;
   if(nhl.status==='fulfilled'){espnScores.nhl=indexESPNGames(nhl.value,'NHL');ok=true;}
@@ -920,14 +936,14 @@ async function fetchAllScores() {
 function renderScores() {
   const container=document.getElementById('liveScores'); if(!container) return;
   const betAbbrs=state.bets.flatMap(b=>(b.game||'').toUpperCase().replace(/[^A-Z /]/g,'').split(/[\s\/]+/)).filter(Boolean);
-  const all=[...espnScores.nhl,...espnScores.nba].sort((a,b)=>({inprogress:0,scheduled:1,closed:2}[a.status]||2)-({inprogress:0,scheduled:1,closed:2}[b.status]||2));
+  const all=[...espnScores.nhl,...espnScores.nba,...espnScores.ncaa].sort((a,b)=>({inprogress:0,scheduled:1,closed:2}[a.status]||2)-({inprogress:0,scheduled:1,closed:2}[b.status]||2));
   if(!all.length){container.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px;grid-column:1/-1">Loading...</div>';return;}
   const hasBet=g=>betAbbrs.includes((g.away||'').toUpperCase())||betAbbrs.includes((g.home||'').toUpperCase());
   container.innerHTML=all.map(g=>{
     const live=g.status==='inprogress';const done=g.status==='closed';
     const sa=g.scoreAway??'',sh=g.scoreHome??'';
     const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}">
+    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
       <div class="score-league">${g.league} ${live?'<span style="color:var(--orange)">● LIVE</span>':''}</div>
       <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
       <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
@@ -945,7 +961,7 @@ function renderScoresFull() {
     return sorted.map(g=>{
       const live=g.status==='inprogress',done=g.status==='closed',bet=hasBet(g);
       const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}">
+      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
         ${bet?'<div style="position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--green)"></div>':''}
         <div class="sb-teams">
           <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
@@ -973,6 +989,13 @@ const STANDINGS_URLS = {
   nba: 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings',
   ncaa:'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings'
 };
+
+function standingsSortValue(entry, league) {
+  const s={};(entry?.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});
+  if(league==='nhl') return s.points||s['PTS']||s.pointsPercentage||s.winPercent||0;
+  if(league==='nba') return s.winPercent||s['PCT']||s.percentage||s.wins||0;
+  return s.winPercent||s.points||s.pointsPercentage||0;
+}
 
 function setLeagueFilter(league, btn) {
   standingsLeague = league;
@@ -1087,9 +1110,10 @@ function renderDivisionStandings(data) {
   let html='';
   groups.forEach(conf=>{
     const confName=conf.name||conf.abbreviation||'';
-    const divGroups=conf.children||conf.standings?.entries?[conf]:[];
+    const divGroups=conf.children?.length?conf.children:(conf.standings?.entries?[conf]:[]);
     divGroups.forEach(div=>{
-      const entries=div.standings?.entries||div.entries||[];
+      const entriesRaw=div.standings?.entries||div.entries||[];
+      const entries=[...entriesRaw].sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
       if(!entries.length) return;
       const divName=div.name||div.abbreviation||confName;
       html+=`<div class="standings-div">${confName?confName+' — ':''}${divName}</div>`;
@@ -1116,10 +1140,7 @@ function renderConferenceStandings(data) {
     if(conf.children?.length) conf.children.forEach(div=>{ allEntries=[...allEntries,...(div.standings?.entries||div.entries||[])]; });
     else allEntries=conf.standings?.entries||conf.entries||[];
     // Sort by win pct / points
-    allEntries.sort((a,b)=>{
-      const getV=e=>{const stats={};(e.stats||[]).forEach(s=>{stats[s.name||s.shortDisplayName]=parseFloat(s.displayValue||s.value)||0;});return stats['winPercent']||stats['points']||stats['pointsPercentage']||0;};
-      return getV(b)-getV(a);
-    });
+    allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
     if(!allEntries.length) return;
     html+=`<div class="standings-div">${conf.name||conf.abbreviation||'Conference'}</div>`;
     html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
@@ -1146,10 +1167,7 @@ function renderLeagueStandings(data) {
     });
   } else allEntries=data.standings?.entries||data.entries||[];
   if(!allEntries.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No data</div>';return;}
-  allEntries.sort((a,b)=>{
-    const getV=e=>{const stats={};(e.stats||[]).forEach(s=>{stats[s.name||s.shortDisplayName]=parseFloat(s.displayValue||s.value)||0;});return stats['winPercent']||stats['points']||stats['pointsPercentage']||0;};
-    return getV(b)-getV(a);
-  });
+  allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
   const poLine=league==='nhl'?16:16;
   let html=`<div class="standings-div">Full League — All Teams</div><table class="standings-table">${tableHeader(league)}<tbody>`;
   allEntries.forEach((e,i)=>{ html+=buildTeamRow(e,i,poLine,league); });
@@ -1172,10 +1190,7 @@ function renderWildcardStandings(data) {
 
     if(conf.children?.length) {
       conf.children.forEach(div=>{
-        const entries=(div.standings?.entries||div.entries||[]).sort((a,b)=>{
-          const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-          return getV(b)-getV(a);
-        });
+        const entries=(div.standings?.entries||div.entries||[]).sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
         if(entries.length) divLeaders.push({div:div.name||div.abbreviation,leader:entries[0],rest:entries.slice(1)});
         wildCandidates=[...wildCandidates,...entries.slice(1)];
       });
@@ -1186,10 +1201,7 @@ function renderWildcardStandings(data) {
     }
 
     // Sort wild card candidates
-    wildCandidates.sort((a,b)=>{
-      const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-      return getV(b)-getV(a);
-    });
+    wildCandidates.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
 
     html+=`<div class="standings-div">${confName}</div>`;
 
@@ -1236,10 +1248,38 @@ function renderNCAARankings(data, c) {
 }
 
 // ── PLAYOFF BRACKET ──
+async function fetchNCAAMarchMadnessBracket() {
+  const candidates = [
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/tournament/bracket',
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/bracket',
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/summary'
+  ];
+  for (const url of candidates) {
+    try {
+      let data;
+      try { const r=await fetch(url,{signal:AbortSignal.timeout(6000)}); if(r.ok) data=await r.json(); } catch(e){}
+      if(!data){const r=await fetch(CORS_PROXY+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)}); if(r.ok) data=await r.json();}
+      const rounds = data?.rounds || data?.bracket?.rounds || [];
+      if (Array.isArray(rounds) && rounds.length) return data;
+    } catch (e) {}
+  }
+  return null;
+}
+
 async function fetchBracket() {
   const c=document.getElementById('standingsContainer');
-  if(c) c.innerHTML='<div style="color:var(--yellow);font-family:\'Space Mono\',monospace;font-size:10px">Fetching playoff bracket from ESPN...</div>';
+  if(c) c.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px">Fetching bracket from ESPN...</div>';
   try {
+    if (standingsLeague==='ncaa') {
+      const mm = await fetchNCAAMarchMadnessBracket();
+      if (mm) {
+        bracketCache[standingsLeague]=mm;
+        renderBracketData(mm);
+        return;
+      }
+      renderBracketUnavailable();
+      return;
+    }
     const path=LEAGUE_PATHS[standingsLeague]||'hockey/nhl';
     const url=`https://site.api.espn.com/apis/site/v2/sports/${path}/bracket`;
     let data;
@@ -1296,7 +1336,7 @@ function renderBracketUnavailable() {
   let msg='';
   if(standingsLeague==='nhl') msg=month>=4?'NHL playoffs in progress — bracket data may be loading.':'NHL playoffs begin in April. Switch to PROJECTED BRACKET to see the current projected field.';
   else if(standingsLeague==='nba') msg=month>=4?'NBA playoffs in progress — bracket data may be loading.':'NBA playoffs begin in April. Switch to PROJECTED BRACKET to see the current projected field.';
-  else msg='NCAA Tournament bracket available from mid-March through April. Switch to PROJECTED BRACKET to see current projected seedings.';
+  else msg='MARCH MADNESS bracket is shown here when ESPN publishes the live tournament tree (mid-March to April).';
 
   c.innerHTML=`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:20px;text-align:center">
     <div style="font-size:24px;margin-bottom:12px">🏆</div>
@@ -1311,6 +1351,7 @@ function renderProjectedBracket() {
   const data=standingsCache[standingsLeague];
   if(!data){c.innerHTML='<div style="color:var(--text3);font-size:12px">Load standings first</div>';return;}
   if(standingsLeague==='ncaa'){renderProjectedNCAA(data,c);return;}
+  const league=standingsLeague;
 
   // Build seedings from current standings
   const groups=data.children||[];
@@ -1322,19 +1363,13 @@ function renderProjectedBracket() {
     let allEntries=[];
     if(conf.children?.length) conf.children.forEach(div=>{ allEntries=[...allEntries,...(div.standings?.entries||div.entries||[])]; });
     else allEntries=conf.standings?.entries||conf.entries||[];
-    const sorted=allEntries.sort((a,b)=>{
-      const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-      return getV(b)-getV(a);
-    });
+    const sorted=allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
 
     // Division leaders (auto-qualify) + wildcards
     let divLeaders=[];
     if(conf.children?.length) {
       conf.children.forEach(div=>{
-        const es=(div.standings?.entries||div.entries||[]).sort((a,b)=>{
-          const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-          return getV(b)-getV(a);
-        });
+        const es=(div.standings?.entries||div.entries||[]).sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
         if(es.length) divLeaders.push(es[0]);
       });
     }
@@ -1344,7 +1379,6 @@ function renderProjectedBracket() {
     conferences.push({name:conf.name||conf.abbreviation,teams:playoff8});
   });
 
-  const league=standingsLeague;
   const month=new Date().getMonth()+1;
   const isLate=month>=3;
 
@@ -2479,6 +2513,179 @@ init();
     };
   }
 
+  function getAllScoreGames() {
+    if (typeof window.espnScores !== 'object' || !espnScores) return [];
+    return []
+      .concat(Array.isArray(espnScores.nhl) ? espnScores.nhl : [])
+      .concat(Array.isArray(espnScores.nba) ? espnScores.nba : [])
+      .concat(Array.isArray(espnScores.ncaa) ? espnScores.ncaa : []);
+  }
+
+  function gameByKey(key) {
+    const k = String(key || '');
+    return getAllScoreGames().find(function (g) { return String(g.eventId || '') === k; }) || null;
+  }
+
+  function gameTeamTokens(game) {
+    return [String(game?.away || '').toUpperCase(), String(game?.home || '').toUpperCase()].map(function (t) { return t.replace(/[^A-Z]/g, ''); });
+  }
+
+  function gameMatchedBets(game) {
+    const s = getState();
+    if (!s || !Array.isArray(s.bets) || !game) return [];
+    const toks = gameTeamTokens(game).filter(Boolean);
+    return s.bets.filter(function (b) {
+      const text = String((b.game || '') + ' ' + (b.pick || '')).toUpperCase();
+      return toks.every(function (t) { return text.indexOf(t) >= 0; });
+    });
+  }
+
+  async function fetchJsonWithFallback(url) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (r.ok) return await r.json();
+    } catch (e) {}
+    const proxy = 'https://corsproxy.io/?' + encodeURIComponent(url);
+    const rr = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+    if (!rr.ok) throw new Error('HTTP ' + rr.status);
+    return rr.json();
+  }
+
+  function leaguePathFromGame(g) {
+    const lg = String(g?.league || '').toUpperCase();
+    if (lg === 'NHL') return 'hockey/nhl';
+    if (lg === 'NBA') return 'basketball/nba';
+    return 'basketball/mens-college-basketball';
+  }
+
+  async function fetchRosterSlice(teamId, game) {
+    if (!teamId) return [];
+    const path = leaguePathFromGame(game);
+    const url = 'https://site.api.espn.com/apis/site/v2/sports/' + path + '/teams/' + teamId + '/roster';
+    try {
+      const data = await fetchJsonWithFallback(url);
+      const groups = Array.isArray(data.athletes) ? data.athletes : [];
+      const names = [];
+      groups.forEach(function (g) {
+        const items = Array.isArray(g.items) ? g.items : (Array.isArray(g) ? g : [g]);
+        items.forEach(function (p) {
+          const nm = p && (p.fullName || p.displayName);
+          if (nm) names.push(nm);
+        });
+      });
+      return names.slice(0, 8);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function gameReasonBullets(game, bets) {
+    const out = [];
+    if (bets.length) {
+      out.push('This matchup is framed green because you have ' + bets.length + ' logged bet(s) involving these teams.');
+      const active = bets.filter(function (b) { return b.status === 'placed' || b.status === 'early' || b.status === 'pending'; });
+      if (active.length) out.push(active.length + ' bet(s) are still active/risk-on.');
+    } else {
+      out.push('No existing logged exposure on this matchup.');
+    }
+    if (game.status === 'inprogress') out.push('Game is live — update pace/clock can change in-play context quickly.');
+    if (game.status === 'scheduled') out.push('Pregame state — verify lineups and market movement before betting.');
+    if (game.status === 'closed') out.push('Final state — use this result for review and learning updates.');
+    return out;
+  }
+
+  async function openGameDetailModal(game) {
+    const existing = document.getElementById('gameDetailModal');
+    if (existing) existing.remove();
+    const bets = gameMatchedBets(game);
+    const reasons = gameReasonBullets(game, bets);
+    const modal = document.createElement('div');
+    modal.id = 'gameDetailModal';
+    modal.className = 'modal-overlay';
+    modal.onclick = function (e) { if (e.target === modal) modal.remove(); };
+    const matchup = (game.awayFull || game.away || 'AWAY') + ' @ ' + (game.homeFull || game.home || 'HOME');
+    modal.innerHTML =
+      '<div class="modal-box">' +
+      '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+      '<div><div style="font-size:18px;font-weight:700;color:#fff">' + matchup + '</div><div style="font-family:Space Mono,monospace;font-size:10px;color:var(--text3);margin-top:4px">' + (game.league || '') + ' · ' + (game.clock || 'Scheduled') + (game.period ? (' · ' + game.period) : '') + '</div></div>' +
+      '<button onclick="document.getElementById(\'gameDetailModal\').remove()" style="background:var(--bg4);border:1px solid var(--border2);color:var(--text2);font-family:Space Mono,monospace;font-size:10px;padding:6px 12px;border-radius:3px;cursor:pointer">✕ CLOSE</button>' +
+      '</div>' +
+      '<div style="padding:16px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px"><div style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">AWAY</div><div style="font-size:13px;font-weight:700">' + (game.awayFull || game.away || '—') + '</div><div style="font-family:Space Mono,monospace;font-size:15px;color:var(--text2)">' + (game.scoreAway == null ? '—' : game.scoreAway) + '</div></div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px"><div style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">HOME</div><div style="font-size:13px;font-weight:700">' + (game.homeFull || game.home || '—') + '</div><div style="font-family:Space Mono,monospace;font-size:15px;color:var(--text2)">' + (game.scoreHome == null ? '—' : game.scoreHome) + '</div></div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:10px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--green);letter-spacing:.8px;margin-bottom:6px">WHY THIS CARD IS HIGHLIGHTED</div>' +
+      reasons.map(function (r) { return '<div style="font-size:12px;color:var(--text2);line-height:1.6">• ' + r + '</div>'; }).join('') +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:10px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--yellow);letter-spacing:.8px;margin-bottom:6px">PREGAME SNAPSHOT</div>' +
+      '<div id="gdm-pregame" style="font-size:12px;color:var(--text3)">Loading lines / status...</div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--accent);letter-spacing:.8px;margin-bottom:6px">ROSTER SNAPSHOT (TOP 8)</div>' +
+      '<div id="gdm-rosters" style="font-size:12px;color:var(--text3)">Loading roster data...</div>' +
+      '</div>' +
+      '</div></div>';
+    document.body.appendChild(modal);
+
+    if (game.eventId) {
+      const path = leaguePathFromGame(game);
+      const summaryUrl = 'https://site.api.espn.com/apis/site/v2/sports/' + path + '/summary?event=' + game.eventId;
+      try {
+        const summary = await fetchJsonWithFallback(summaryUrl);
+        const comp = summary?.header?.competitions?.[0] || summary?.competitions?.[0] || {};
+        const od = comp?.odds?.[0] || {};
+        const broadcast = (summary?.header?.competitions?.[0]?.broadcasts || []).map(function (b) { return b?.names?.[0]; }).filter(Boolean).join(', ');
+        const statusText = comp?.status?.type?.detail || game.clock || 'Scheduled';
+        const lineBits = [];
+        if (od.details) lineBits.push(od.details);
+        if (od.overUnder) lineBits.push('O/U ' + od.overUnder);
+        if (od.overUnderOdds) lineBits.push('OU Odds ' + od.overUnderOdds);
+        if (broadcast) lineBits.push('TV: ' + broadcast);
+        const pre = document.getElementById('gdm-pregame');
+        if (pre) pre.innerHTML = '<div style="line-height:1.6"><div><strong>Status:</strong> ' + statusText + '</div><div><strong>Market:</strong> ' + (lineBits.join(' · ') || 'No pregame line posted yet') + '</div></div>';
+      } catch (e) {
+        const pre = document.getElementById('gdm-pregame');
+        if (pre) pre.textContent = 'Pregame summary unavailable right now.';
+      }
+    }
+
+    try {
+      const awayRoster = await fetchRosterSlice(game.awayTeamId, game);
+      const homeRoster = await fetchRosterSlice(game.homeTeamId, game);
+      const ro = document.getElementById('gdm-rosters');
+      if (ro) {
+        const awayList = awayRoster.length ? awayRoster.join(', ') : 'No roster data';
+        const homeList = homeRoster.length ? homeRoster.join(', ') : 'No roster data';
+        ro.innerHTML =
+          '<div style="margin-bottom:8px"><strong>' + (game.away || 'Away') + ':</strong> ' + awayList + '</div>' +
+          '<div><strong>' + (game.home || 'Home') + ':</strong> ' + homeList + '</div>';
+      }
+    } catch (e) {
+      const ro = document.getElementById('gdm-rosters');
+      if (ro) ro.textContent = 'Roster data unavailable.';
+    }
+  }
+
+  function installGameInteractivity() {
+    if (window.__gameInteractivityInstalled) return;
+    window.__gameInteractivityInstalled = true;
+    function attach(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container || container.__gameClickBound) return;
+      container.__gameClickBound = true;
+      container.addEventListener('click', function (e) {
+        const row = e.target && e.target.closest ? e.target.closest('[data-gamekey]') : null;
+        if (!row) return;
+        const g = gameByKey(row.getAttribute('data-gamekey'));
+        if (g) openGameDetailModal(g);
+      });
+    }
+    ['liveScores', 'nhlScoresFull', 'nbaScoresFull', 'ncaaScoresFull'].forEach(attach);
+  }
+
   function getSelectedScoreDateKey() {
     let key = null;
     try { key = localStorage.getItem(SCORE_DAY_KEY); } catch (e) {}
@@ -2559,22 +2766,39 @@ init();
       ncaa: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
     };
 
+    async function fetchLeagueForDay(endpoint, dayKey, opts) {
+      const options = opts || {};
+      const withDate = function (u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dates=' + dayKey; };
+      const withGroups = function (u) {
+        if (u.indexOf('groups=') >= 0) return u;
+        return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'groups=50&limit=500';
+      };
+      const primary = options.ncaa ? withDate(withGroups(endpoint)) : withDate(endpoint);
+      let data = null;
+      try { data = await fetchLeague(primary); } catch (e) {}
+      if (options.ncaa) {
+        const empty = !data || !Array.isArray(data.events) || !data.events.length;
+        if (empty) {
+          try { data = await fetchLeague(withGroups(endpoint)); } catch (e) {}
+        }
+      }
+      return data;
+    }
+
     window.fetchAllScores = async function fetchAllScoresDateAware() {
       const selected = window.__selectedScoreDayKey || getSelectedScoreDateKey();
       const dayDate = fromScoreDateKey(selected) || getOperationalBaseDate();
       const dayKey = toScoreDateKey(dayDate);
       const dayHuman = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-      const withDate = function (u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dates=' + dayKey; };
       const setStatus = function (msg, col) {
         const s = document.getElementById('scoreStatus'); if (s) { s.textContent = msg; s.style.color = col; }
         const t = document.getElementById('scoreTabStatus'); if (t) { t.textContent = msg; t.style.color = col; }
       };
 
-      setStatus('Fetching ' + dayHuman + '...','var(--yellow)');
       const [nhl, nba, ncaa] = await Promise.allSettled([
-        fetchLeague(withDate(baseEndpoints.nhl)),
-        fetchLeague(withDate(baseEndpoints.nba)),
-        fetchLeague(withDate(baseEndpoints.ncaa))
+        fetchLeagueForDay(baseEndpoints.nhl, dayKey),
+        fetchLeagueForDay(baseEndpoints.nba, dayKey),
+        fetchLeagueForDay(baseEndpoints.ncaa, dayKey, { ncaa: true })
       ]);
       let ok = false;
       if (nhl.status === 'fulfilled') { espnScores.nhl = indexESPNGames(nhl.value, 'NHL'); ok = true; }
@@ -2592,6 +2816,105 @@ init();
       }
       if (typeof window.renderScoreDateStrip === 'function') window.renderScoreDateStrip();
     };
+  }
+
+  function installScoreSearchAndFilter() {
+    if (window.__scoreFilterInstalled) return;
+    window.__scoreFilterInstalled = true;
+    window.__scoreSearch = '';
+    window.__scoreFilter = 'all';
+    window.setScoreFilter = function setScoreFilter(mode, btn) {
+      window.__scoreFilter = mode || 'all';
+      const bar = document.getElementById('scoreFilters');
+      if (bar) {
+        bar.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+        if (btn) btn.classList.add('active');
+      }
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+    };
+    window.filterScores = function filterScores() {
+      const el = document.getElementById('scoreSearch');
+      window.__scoreSearch = String(el && el.value ? el.value : '').toUpperCase();
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+    };
+    if (typeof window.renderScoresFull === 'function' && !window.__renderScoresFullPatchedForFilter) {
+      const base = window.renderScoresFull;
+      window.__renderScoresFullPatchedForFilter = true;
+      window.renderScoresFull = function renderScoresFullWithFilters() {
+        base();
+        const mode = window.__scoreFilter || 'all';
+        const q = window.__scoreSearch || '';
+        ['nhlScoresFull', 'nbaScoresFull', 'ncaaScoresFull'].forEach(function (id) {
+          const container = document.getElementById(id);
+          if (!container) return;
+          container.querySelectorAll('.sb-row').forEach(function (row) {
+            const text = String(row.textContent || '').toUpperCase();
+            const isLive = row.classList.contains('live');
+            const isFinal = row.classList.contains('final');
+            const passMode = mode === 'all' || (mode === 'live' && isLive) || (mode === 'upcoming' && !isLive && !isFinal) || (mode === 'final' && isFinal);
+            const passQuery = !q || text.indexOf(q) >= 0;
+            row.style.display = passMode && passQuery ? '' : 'none';
+          });
+        });
+      };
+    }
+  }
+
+  function installMarchMadnessBehavior() {
+    if (window.__marchMadnessInstalled) return;
+    window.__marchMadnessInstalled = true;
+
+    function syncBracketTabLabel() {
+      const b = document.getElementById('stSub-bracket');
+      if (!b) return;
+      b.textContent = (String(window.standingsLeague || '').toLowerCase() === 'ncaa') ? 'MARCH MADNESS BRACKET' : 'PLAYOFF BRACKET';
+    }
+
+    if (typeof window.setLeagueFilter === 'function') {
+      const baseSetLeague = window.setLeagueFilter;
+      window.setLeagueFilter = function setLeagueFilterPatched(league, btn) {
+        baseSetLeague(league, btn);
+        syncBracketTabLabel();
+      };
+    }
+
+    if (typeof window.fetchBracket === 'function') {
+      const baseFetchBracket = window.fetchBracket;
+      window.fetchBracket = async function fetchBracketPatched() {
+        if (String(window.standingsLeague || '').toLowerCase() !== 'ncaa') return baseFetchBracket();
+        const c = document.getElementById('standingsContainer');
+        if (c) c.innerHTML = '<div style="color:var(--text3);font-family:Space Mono,monospace;font-size:10px">Fetching March Madness bracket from ESPN...</div>';
+        const urls = [
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/tournament/bracket',
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/bracket',
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=500'
+        ];
+        for (let i = 0; i < urls.length; i += 1) {
+          try {
+            const data = await fetchJsonWithFallback(urls[i]);
+            const rounds = data?.rounds || data?.bracket?.rounds || [];
+            if (rounds.length && typeof window.renderBracketData === 'function') {
+              window.renderBracketData(data);
+              return;
+            }
+            if (Array.isArray(data?.events) && data.events.length && c) {
+              const rows = data.events.slice(0, 32).map(function (ev) {
+                const comp = ev.competitions?.[0];
+                const away = comp?.competitors?.find(function (x) { return x.homeAway === 'away'; });
+                const home = comp?.competitors?.find(function (x) { return x.homeAway === 'home'; });
+                const st = comp?.status?.type?.shortDetail || comp?.status?.type?.description || 'Scheduled';
+                return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px"><span>' + (away?.team?.abbreviation || '?') + ' vs ' + (home?.team?.abbreviation || '?') + '</span><span style="color:var(--text3);font-family:Space Mono,monospace;font-size:10px">' + st + '</span></div>';
+              }).join('');
+              c.innerHTML = '<div style="margin-bottom:8px;font-family:Space Mono,monospace;font-size:10px;color:var(--yellow)">MARCH MADNESS LIVE BOARD</div>' + rows;
+              return;
+            }
+          } catch (e) {}
+        }
+        if (typeof window.renderBracketUnavailable === 'function') window.renderBracketUnavailable();
+      };
+    }
+
+    syncBracketTabLabel();
   }
 
   function installLiveOneSecondSync() {
@@ -2672,6 +2995,9 @@ init();
   setSelectedScoreDateKey(getSelectedScoreDateKey());
   installScoreDateNavigator();
   installDateAwareScoreFetch();
+  installScoreSearchAndFilter();
+  installGameInteractivity();
+  installMarchMadnessBehavior();
   bootstrapPicksFromChatHistory();
   patchAppendMsgForPicks();
   patchAddBetForPicks();
