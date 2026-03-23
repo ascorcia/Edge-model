@@ -2125,6 +2125,7 @@ init();
   const STORAGE_KEY = 'edge_model_v4';
   const DAILY_KEY = 'dailyPicks';
   const SCORE_DAY_KEY = 'edge_score_day_v1';
+  const PICK_CYCLE_TS_KEY = 'edge_pick_cycle_ts_v1';
 
   function getState() {
     if (typeof window.state === 'object' && window.state) return window.state;
@@ -2279,7 +2280,92 @@ init();
     // keep week of archives
     const keys = Object.keys(window.state[DAILY_KEY]).sort();
     for (let i = 0; i < keys.length - 7; i += 1) delete window.state[DAILY_KEY][keys[i]];
+    cycleAndSortPicks();
+    try { localStorage.setItem(PICK_CYCLE_TS_KEY, String(Date.now())); } catch (e) {}
     saveState();
+  }
+
+  function pickConfidenceMeta(p) {
+    const edge = parsePercent(p && p.edge);
+    const ev = evPct(p && p.edge, p && p.odds);
+    if (edge !== null && ev !== null && edge >= 10 && ev >= 2) return { label: 'HIGH CONVICTION', color: 'var(--green)', tier: 3 };
+    if (edge !== null && ev !== null && edge >= 3 && ev > 0) return { label: 'MODEL LIKES', color: 'var(--blue)', tier: 2 };
+    return { label: 'REVIEW', color: 'var(--yellow)', tier: 1 };
+  }
+
+  function pickPriorityScore(p) {
+    const edge = parsePercent(p && p.edge);
+    const ev = evPct(p && p.edge, p && p.odds);
+    const conf = pickConfidenceMeta(p);
+    let score = 0;
+    score += conf.tier * 8;
+    if (edge !== null) score += edge * 1.8;
+    else score -= 4;
+    if (ev !== null) score += ev * 3.2;
+    else score -= 1.5;
+
+    const gameCtx = findScoreContextForPick(p);
+    if (gameCtx) {
+      if (gameCtx.status === 'inprogress') score += 5;
+      else if (gameCtx.status === 'scheduled') score += 2;
+      else if (gameCtx.status === 'closed') score -= 10;
+    }
+
+    const addedAt = Number(p && p.addedAt) || Number(p && p.id) || 0;
+    if (addedAt > 0) {
+      const hoursOld = (Date.now() - addedAt) / 3600000;
+      if (hoursOld > 24) score -= Math.min(6, (hoursOld - 24) * 0.2);
+    }
+    return Number(score.toFixed(3));
+  }
+
+  function cycleAndSortPicks() {
+    ensureDailyPicks();
+    const list = window.state[DAILY_KEY][todayKey()] || [];
+    if (!list.length) return false;
+    const now = Date.now();
+    for (let i = 0; i < list.length; i += 1) {
+      const p = list[i];
+      if (!p.addedAt) p.addedAt = Number(p.id) || (now + i);
+      p._autoRank = pickPriorityScore(p);
+      p._autoConfidence = pickConfidenceMeta(p).label;
+      p._autoCycleAt = now;
+    }
+    list.sort(function (a, b) {
+      const d = (Number(b._autoRank) || -9999) - (Number(a._autoRank) || -9999);
+      if (d !== 0) return d;
+      return (Number(b.addedAt) || 0) - (Number(a.addedAt) || 0);
+    });
+    saveState();
+    return true;
+  }
+
+  function maybeRunHourlyPickCycle(force) {
+    const now = Date.now();
+    let last = 0;
+    try { last = parseInt(localStorage.getItem(PICK_CYCLE_TS_KEY) || '0', 10) || 0; } catch (e) {}
+    if (!force && now - last < 3600000) return false;
+    const changed = cycleAndSortPicks();
+    try { localStorage.setItem(PICK_CYCLE_TS_KEY, String(now)); } catch (e) {}
+    return changed;
+  }
+
+  function installHourlyPickCycle() {
+    if (window.__hourlyPickCycleInstalled) return;
+    window.__hourlyPickCycleInstalled = true;
+    maybeRunHourlyPickCycle(true);
+    setInterval(function () {
+      if (maybeRunHourlyPickCycle(false)) {
+        const picksTab = document.getElementById('tab-picks');
+        if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
+      }
+    }, 60000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && maybeRunHourlyPickCycle(false)) {
+        const picksTab = document.getElementById('tab-picks');
+        if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
+      }
+    });
   }
 
   function openBetFormWithPrefill(p) {
@@ -2405,6 +2491,7 @@ init();
 
   function renderPicksTab() {
     ensureDailyPicks();
+    maybeRunHourlyPickCycle(false);
     const c = document.getElementById('picksContainer');
     if (!c) return;
     const picks = window.state[DAILY_KEY][todayKey()] || [];
@@ -2413,15 +2500,15 @@ init();
       return;
     }
     c.innerHTML =
-      '<div class="alert alert-info" style="margin-bottom:10px">Daily picks auto-synced from model output.</div>' +
+      '<div class="alert alert-info" style="margin-bottom:10px">Daily picks auto-synced from model output. Auto-cycle runs hourly to rank best picks first.</div>' +
       picks
         .map(function (p) {
-          const edge = parsePercent(p.edge);
+          const edge = parsePercent(p && p.edge);
           const ev = evPct(p.edge, p.odds);
-          let conf = 'REVIEW';
-          let col = 'var(--yellow)';
-          if (edge !== null && ev !== null && edge >= 10 && ev >= 2) { conf = 'HIGH CONVICTION'; col = 'var(--green)'; }
-          else if (edge !== null && ev !== null && edge >= 3 && ev > 0) { conf = 'MODEL LIKES'; col = 'var(--blue)'; }
+          const meta = pickConfidenceMeta(p);
+          const conf = meta.label;
+          const col = meta.color;
+          const rank = Number(p && p._autoRank);
           const payload = encodeURIComponent(JSON.stringify(p));
           return (
             '<div class="pick-card ' + ((edge || 0) >= 10 ? 't1' : 't2') + '" data-pickdetail="' + payload + '" style="cursor:pointer">' +
@@ -2433,6 +2520,7 @@ init();
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || '—') + '</span>' +
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((ev !== null && ev > 0) ? 'var(--green)' : 'var(--yellow)') + '">EV ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</span>' +
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + conf + '</span>' +
+            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text3)">RANK ' + (Number.isFinite(rank) ? rank.toFixed(1) : '—') + '</span>' +
             '</div>' +
             '<button class="btn" data-pickfill="' + payload + '" style="font-size:9px;border-color:var(--green);color:var(--green)">Use in Bet Log</button>' +
             '</div>'
@@ -2443,11 +2531,8 @@ init();
       card.addEventListener('click', function () {
         try {
           const p = JSON.parse(decodeURIComponent(card.getAttribute('data-pickdetail') || '{}'));
-          const edge = parsePercent(p.edge);
           const ev = evPct(p.edge, p.odds);
-          let conf = 'REVIEW';
-          if (edge !== null && ev !== null && edge >= 10 && ev >= 2) conf = 'HIGH CONVICTION';
-          else if (edge !== null && ev !== null && edge >= 3 && ev > 0) conf = 'MODEL LIKES';
+          const conf = pickConfidenceMeta(p).label;
           openPickModal(p, conf, ev);
         } catch (e) {}
       });
@@ -2864,6 +2949,93 @@ init();
     if (window.__marchMadnessInstalled) return;
     window.__marchMadnessInstalled = true;
 
+    function mmRoundOrder(label) {
+      const s = String(label || '').toLowerCase();
+      if (s.indexOf('first four') >= 0 || s.indexOf('play-in') >= 0) return 1;
+      if (s.indexOf('1st') >= 0 || s.indexOf('first round') >= 0) return 2;
+      if (s.indexOf('2nd') >= 0 || s.indexOf('second round') >= 0) return 3;
+      if (s.indexOf('sweet 16') >= 0) return 4;
+      if (s.indexOf('elite 8') >= 0 || s.indexOf('elite eight') >= 0) return 5;
+      if (s.indexOf('final four') >= 0 || s.indexOf('semifinal') >= 0) return 6;
+      if (s.indexOf('championship') >= 0 || s.indexOf('title') >= 0 || s.indexOf('final') >= 0) return 7;
+      return 99;
+    }
+
+    function mmMetaFromEvent(ev) {
+      const comp = ev && ev.competitions && ev.competitions[0] ? ev.competitions[0] : {};
+      const notes = (comp.notes || []).map(function (n) { return n && (n.headline || n.text || ''); }).filter(Boolean);
+      const joined = notes.join(' | ');
+      const isMm = Number(comp.tournamentId) === 22 || /NCAA Men's Basketball Championship|March Madness|Final Four|Elite 8|Sweet 16/i.test(joined);
+      if (!isMm) return null;
+
+      let region = 'National';
+      let round = '';
+      const full = joined || String(ev && ev.name || '');
+      const regionRound = full.match(/-\s*([^-|]+Region)\s*-\s*([^|]+)/i);
+      if (regionRound) {
+        region = regionRound[1].trim();
+        round = regionRound[2].trim();
+      } else {
+        const roundOnly = full.match(/-\s*(First Four|1st Round|First Round|2nd Round|Second Round|Sweet 16|Elite 8|Final Four|Championship Game)/i);
+        round = roundOnly ? roundOnly[1].trim() : '';
+      }
+      if (!round) round = (comp.status && comp.status.type && comp.status.type.description) || 'Tournament';
+      return { region: region, round: round, order: mmRoundOrder(round), note: full };
+    }
+
+    function renderMarchMadnessBracketFromEvents(events, container) {
+      const rows = [];
+      (events || []).forEach(function (ev) {
+        const meta = mmMetaFromEvent(ev);
+        if (!meta) return;
+        const comp = ev && ev.competitions && ev.competitions[0] ? ev.competitions[0] : {};
+        const away = (comp.competitors || []).find(function (x) { return x.homeAway === 'away'; }) || {};
+        const home = (comp.competitors || []).find(function (x) { return x.homeAway === 'home'; }) || {};
+        rows.push({
+          order: meta.order,
+          round: meta.round,
+          region: meta.region,
+          date: ev.date || '',
+          status: (comp.status && comp.status.type && (comp.status.type.shortDetail || comp.status.type.detail || comp.status.type.description)) || 'Scheduled',
+          isLive: !!(comp.status && comp.status.type && comp.status.type.state === 'in'),
+          isFinal: !!(comp.status && comp.status.type && comp.status.type.completed),
+          away: (away.team && (away.team.abbreviation || away.team.shortDisplayName || away.team.displayName)) || 'TBD',
+          home: (home.team && (home.team.abbreviation || home.team.shortDisplayName || home.team.displayName)) || 'TBD',
+          awayScore: away.score,
+          homeScore: home.score
+        });
+      });
+      if (!rows.length || !container) return false;
+      rows.sort(function (a, b) {
+        if (a.order !== b.order) return a.order - b.order;
+        return String(a.date).localeCompare(String(b.date));
+      });
+      const byRound = {};
+      rows.forEach(function (r) {
+        if (!byRound[r.round]) byRound[r.round] = [];
+        byRound[r.round].push(r);
+      });
+      const rounds = Object.keys(byRound).sort(function (a, b) { return mmRoundOrder(a) - mmRoundOrder(b); });
+      let html = '<div style="margin-bottom:10px;font-family:Space Mono,monospace;font-size:10px;color:var(--yellow)">LIVE MARCH MADNESS BRACKET · AUTO-UPDATED</div>';
+      html += '<div style="display:grid;grid-auto-flow:column;grid-auto-columns:minmax(240px,1fr);gap:10px;overflow-x:auto;padding-bottom:4px">';
+      rounds.forEach(function (roundName) {
+        html += '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px">';
+        html += '<div style="font-family:Space Mono,monospace;font-size:9px;letter-spacing:1px;color:var(--accent);margin-bottom:8px">' + roundName.toUpperCase() + '</div>';
+        byRound[roundName].forEach(function (g) {
+          html += '<div style="border:1px solid var(--border2);border-radius:4px;padding:7px;margin-bottom:7px;background:' + (g.isLive ? 'rgba(255,159,67,.08)' : 'var(--bg2)') + '">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">' + (g.region || 'National') + '</span><span style="font-family:Space Mono,monospace;font-size:9px;color:' + (g.isLive ? 'var(--orange)' : g.isFinal ? 'var(--green)' : 'var(--text3)') + '">' + (g.isLive ? 'LIVE' : g.isFinal ? 'FINAL' : 'SCHED') + '</span></div>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>' + g.away + '</span><strong>' + (g.awayScore == null ? '—' : g.awayScore) + '</strong></div>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:12px"><span>' + g.home + '</span><strong>' + (g.homeScore == null ? '—' : g.homeScore) + '</strong></div>';
+          html += '<div style="margin-top:5px;font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">' + g.status + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+      return true;
+    }
+
     function syncBracketTabLabel() {
       const b = document.getElementById('stSub-bracket');
       if (!b) return;
@@ -2884,10 +3056,19 @@ init();
         if (String(window.standingsLeague || '').toLowerCase() !== 'ncaa') return baseFetchBracket();
         const c = document.getElementById('standingsContainer');
         if (c) c.innerHTML = '<div style="color:var(--text3);font-family:Space Mono,monospace;font-size:10px">Fetching March Madness bracket from ESPN...</div>';
+        const selected = (typeof getSelectedScoreDateKey === 'function') ? getSelectedScoreDateKey() : null;
+        const selectedDate = (typeof fromScoreDateKey === 'function' && selected) ? fromScoreDateKey(selected) : new Date();
+        const baseDate = selectedDate || new Date();
+        const start = new Date(baseDate);
+        const end = new Date(baseDate);
+        start.setDate(baseDate.getDate() - 14);
+        end.setDate(baseDate.getDate() + 14);
+        const fmt = function (d) { return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+        const range = fmt(start) + '-' + fmt(end);
         const urls = [
           'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/tournament/bracket',
           'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/bracket',
-          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=500'
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=500&seasontype=3&dates=' + range
         ];
         for (let i = 0; i < urls.length; i += 1) {
           try {
@@ -2898,15 +3079,7 @@ init();
               return;
             }
             if (Array.isArray(data?.events) && data.events.length && c) {
-              const rows = data.events.slice(0, 32).map(function (ev) {
-                const comp = ev.competitions?.[0];
-                const away = comp?.competitors?.find(function (x) { return x.homeAway === 'away'; });
-                const home = comp?.competitors?.find(function (x) { return x.homeAway === 'home'; });
-                const st = comp?.status?.type?.shortDetail || comp?.status?.type?.description || 'Scheduled';
-                return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px"><span>' + (away?.team?.abbreviation || '?') + ' vs ' + (home?.team?.abbreviation || '?') + '</span><span style="color:var(--text3);font-family:Space Mono,monospace;font-size:10px">' + st + '</span></div>';
-              }).join('');
-              c.innerHTML = '<div style="margin-bottom:8px;font-family:Space Mono,monospace;font-size:10px;color:var(--yellow)">MARCH MADNESS LIVE BOARD</div>' + rows;
-              return;
+              if (renderMarchMadnessBracketFromEvents(data.events, c)) return;
             }
           } catch (e) {}
         }
@@ -3001,6 +3174,7 @@ init();
   bootstrapPicksFromChatHistory();
   patchAppendMsgForPicks();
   patchAddBetForPicks();
+  installHourlyPickCycle();
   renderPicksTab();
   if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
   installLiveOneSecondSync();
