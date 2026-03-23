@@ -113,6 +113,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .score-card.has-bet{border-color:var(--green)}
 .score-card.has-bet::before{content:'●';position:absolute;top:6px;right:6px;color:var(--green);font-size:8px}
 .score-card.live-game{border-color:var(--orange)}
+.score-card,.sb-row{transition:transform .15s ease,border-color .2s ease,box-shadow .2s ease}
+.score-card:hover,.sb-row:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.24)}
 .score-league{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:4px}
 .score-teams{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
 .score-team{font-size:12px;font-weight:600}
@@ -122,22 +124,22 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 
 /* ── STANDINGS ── */
 .st-sub-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.st-sub-tab{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:5px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text3);cursor:pointer;text-transform:uppercase;transition:all .15s}
-.st-sub-tab:hover{color:var(--text2);border-color:var(--border2)}
+.st-sub-tab{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:6px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text2);cursor:pointer;text-transform:uppercase;transition:all .15s}
+.st-sub-tab:hover{color:var(--text);border-color:var(--text3)}
 .st-sub-tab.active{border-color:var(--accent);color:var(--accent)}
 
-.standings-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
-.standings-table th{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);padding:6px 8px;text-align:left;border-bottom:1px solid var(--border2);background:var(--bg3)}
+.standings-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.standings-table th{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);padding:8px 10px;text-align:left;border-bottom:1px solid var(--border2);background:var(--bg3)}
 .standings-table th.num{text-align:right}
-.standings-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle}
-.standings-table td.num{text-align:right;font-family:'Space Mono',monospace;font-size:11px}
-.standings-table tr{cursor:pointer;transition:background .1s}
-.standings-table tr:hover td{background:var(--bg3)}
+.standings-table td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+.standings-table td.num{text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:var(--text2)}
+.standings-table tr{cursor:pointer;transition:background .12s}
+.standings-table tr:hover td{background:rgba(106,176,245,.07)}
 .standings-table tr.playoff td{color:var(--text)}
 .standings-table tr.bubble td{color:var(--yellow)}
-.standings-table .team-name{font-weight:600;color:var(--accent)}
-.standings-table .rank{font-family:'Space Mono',monospace;font-size:10px;color:var(--text3);min-width:24px}
-.standings-div{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent);padding:10px 8px 4px;border-bottom:1px solid var(--green-dim);margin-top:12px}
+.standings-table .team-name{font-weight:700;color:#dff4ea}
+.standings-table .rank{font-family:'Space Mono',monospace;font-size:10px;color:var(--text2);min-width:24px}
+.standings-div{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);padding:12px 8px 6px;border-bottom:1px solid var(--green-dim);margin-top:14px}
 .standings-div:first-child{margin-top:0}
 
 /* ── BRACKET ── */
@@ -236,6 +238,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .pick-card.t1{border-left:3px solid var(--green)}
 .pick-card.t2{border-left:3px solid var(--yellow)}
 .pick-game{font-size:14px;font-weight:600}
+.pick-refresh-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.pick-refresh-note{font-family:'Space Mono',monospace;font-size:10px;color:var(--text2)}
 
 /* ── CHAT SIDEBAR ── */
 .chat-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
@@ -470,6 +474,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 <!-- ═══════ PICKS ═══════ -->
 <div id="tab-picks" class="tab-hidden">
   <div class="alert alert-info">Picks are RECOMMENDATIONS only. Nothing placed until you confirm. Budget only updates on confirmed bets.</div>
+  <div class="pick-refresh-row">
+    <div class="pick-refresh-note" id="picksRefreshStatus">Auto cycle active. Morning picks will prefill automatically.</div>
+    <button class="btn" id="picksManualRefreshBtn" onclick="manualRefreshPicks()">↻ REFRESH PICKS</button>
+  </div>
   <div id="picksContainer"><div class="pick-card"><div style="color:var(--text3);font-size:12px">Use chat to generate picks — ask "run today's card".</div></div></div>
 </div>
 
@@ -895,7 +903,21 @@ function indexESPNGames(data, league) {
     if(done) clock='Final';
     else if(live) clock=st.displayClock||'';
     else { try{clock=new Date(ev.date).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'})+' ET';}catch(e){} }
-    return {league,away:away.team?.abbreviation,home:home.team?.abbreviation,awayFull:away.team?.displayName,homeFull:home.team?.displayName,scoreAway:live||done?parseInt(away.score||0):null,scoreHome:live||done?parseInt(home.score||0):null,status:done?'closed':live?'inprogress':'scheduled',clock,period:live?(league==='NHL'?'P'+(st.period||''):'Q'+(st.quarter||'')):'',eventId:ev.id};
+    return {
+      league,
+      away:away.team?.abbreviation,
+      home:home.team?.abbreviation,
+      awayFull:away.team?.displayName,
+      homeFull:home.team?.displayName,
+      awayTeamId:away.team?.id||'',
+      homeTeamId:home.team?.id||'',
+      scoreAway:live||done?parseInt(away.score||0):null,
+      scoreHome:live||done?parseInt(home.score||0):null,
+      status:done?'closed':live?'inprogress':'scheduled',
+      clock,
+      period:live?(league==='NHL'?'P'+(st.period||''):'Q'+(st.quarter||'')):'',
+      eventId:ev.id
+    };
   }).filter(Boolean);
 }
 
@@ -904,7 +926,9 @@ async function fetchAllScores() {
     const s=document.getElementById('scoreStatus'); if(s){s.textContent=msg;s.style.color=col;}
     const t=document.getElementById('scoreTabStatus'); if(t){t.textContent=msg;t.style.color=col;}
   };
-  setStatus('Fetching...','var(--yellow)');
+  // avoid flashing status color on each refresh
+  const cur=document.getElementById('scoreStatus');
+  if(cur&&!cur.textContent) setStatus('Fetching...','var(--text3)');
   const [nhl,nba,ncaa]=await Promise.allSettled([fetchLeague(ESPN_ENDPOINTS.nhl),fetchLeague(ESPN_ENDPOINTS.nba),fetchLeague(ESPN_ENDPOINTS.ncaa)]);
   let ok=false;
   if(nhl.status==='fulfilled'){espnScores.nhl=indexESPNGames(nhl.value,'NHL');ok=true;}
@@ -920,14 +944,14 @@ async function fetchAllScores() {
 function renderScores() {
   const container=document.getElementById('liveScores'); if(!container) return;
   const betAbbrs=state.bets.flatMap(b=>(b.game||'').toUpperCase().replace(/[^A-Z /]/g,'').split(/[\s\/]+/)).filter(Boolean);
-  const all=[...espnScores.nhl,...espnScores.nba].sort((a,b)=>({inprogress:0,scheduled:1,closed:2}[a.status]||2)-({inprogress:0,scheduled:1,closed:2}[b.status]||2));
+  const all=[...espnScores.nhl,...espnScores.nba,...espnScores.ncaa].sort((a,b)=>({inprogress:0,scheduled:1,closed:2}[a.status]||2)-({inprogress:0,scheduled:1,closed:2}[b.status]||2));
   if(!all.length){container.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px;grid-column:1/-1">Loading...</div>';return;}
   const hasBet=g=>betAbbrs.includes((g.away||'').toUpperCase())||betAbbrs.includes((g.home||'').toUpperCase());
   container.innerHTML=all.map(g=>{
     const live=g.status==='inprogress';const done=g.status==='closed';
     const sa=g.scoreAway??'',sh=g.scoreHome??'';
     const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}">
+    return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
       <div class="score-league">${g.league} ${live?'<span style="color:var(--orange)">● LIVE</span>':''}</div>
       <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
       <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
@@ -945,7 +969,7 @@ function renderScoresFull() {
     return sorted.map(g=>{
       const live=g.status==='inprogress',done=g.status==='closed',bet=hasBet(g);
       const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
-      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}">
+      return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer">
         ${bet?'<div style="position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--green)"></div>':''}
         <div class="sb-teams">
           <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
@@ -973,6 +997,13 @@ const STANDINGS_URLS = {
   nba: 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings',
   ncaa:'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings'
 };
+
+function standingsSortValue(entry, league) {
+  const s={};(entry?.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});
+  if(league==='nhl') return s.points||s['PTS']||s.pointsPercentage||s.winPercent||0;
+  if(league==='nba') return s.winPercent||s['PCT']||s.percentage||s.wins||0;
+  return s.winPercent||s.points||s.pointsPercentage||0;
+}
 
 function setLeagueFilter(league, btn) {
   standingsLeague = league;
@@ -1087,9 +1118,10 @@ function renderDivisionStandings(data) {
   let html='';
   groups.forEach(conf=>{
     const confName=conf.name||conf.abbreviation||'';
-    const divGroups=conf.children||conf.standings?.entries?[conf]:[];
+    const divGroups=conf.children?.length?conf.children:(conf.standings?.entries?[conf]:[]);
     divGroups.forEach(div=>{
-      const entries=div.standings?.entries||div.entries||[];
+      const entriesRaw=div.standings?.entries||div.entries||[];
+      const entries=[...entriesRaw].sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
       if(!entries.length) return;
       const divName=div.name||div.abbreviation||confName;
       html+=`<div class="standings-div">${confName?confName+' — ':''}${divName}</div>`;
@@ -1116,10 +1148,7 @@ function renderConferenceStandings(data) {
     if(conf.children?.length) conf.children.forEach(div=>{ allEntries=[...allEntries,...(div.standings?.entries||div.entries||[])]; });
     else allEntries=conf.standings?.entries||conf.entries||[];
     // Sort by win pct / points
-    allEntries.sort((a,b)=>{
-      const getV=e=>{const stats={};(e.stats||[]).forEach(s=>{stats[s.name||s.shortDisplayName]=parseFloat(s.displayValue||s.value)||0;});return stats['winPercent']||stats['points']||stats['pointsPercentage']||0;};
-      return getV(b)-getV(a);
-    });
+    allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
     if(!allEntries.length) return;
     html+=`<div class="standings-div">${conf.name||conf.abbreviation||'Conference'}</div>`;
     html+=`<table class="standings-table">${tableHeader(league)}<tbody>`;
@@ -1146,10 +1175,7 @@ function renderLeagueStandings(data) {
     });
   } else allEntries=data.standings?.entries||data.entries||[];
   if(!allEntries.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No data</div>';return;}
-  allEntries.sort((a,b)=>{
-    const getV=e=>{const stats={};(e.stats||[]).forEach(s=>{stats[s.name||s.shortDisplayName]=parseFloat(s.displayValue||s.value)||0;});return stats['winPercent']||stats['points']||stats['pointsPercentage']||0;};
-    return getV(b)-getV(a);
-  });
+  allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
   const poLine=league==='nhl'?16:16;
   let html=`<div class="standings-div">Full League — All Teams</div><table class="standings-table">${tableHeader(league)}<tbody>`;
   allEntries.forEach((e,i)=>{ html+=buildTeamRow(e,i,poLine,league); });
@@ -1172,10 +1198,7 @@ function renderWildcardStandings(data) {
 
     if(conf.children?.length) {
       conf.children.forEach(div=>{
-        const entries=(div.standings?.entries||div.entries||[]).sort((a,b)=>{
-          const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-          return getV(b)-getV(a);
-        });
+        const entries=(div.standings?.entries||div.entries||[]).sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
         if(entries.length) divLeaders.push({div:div.name||div.abbreviation,leader:entries[0],rest:entries.slice(1)});
         wildCandidates=[...wildCandidates,...entries.slice(1)];
       });
@@ -1186,10 +1209,7 @@ function renderWildcardStandings(data) {
     }
 
     // Sort wild card candidates
-    wildCandidates.sort((a,b)=>{
-      const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-      return getV(b)-getV(a);
-    });
+    wildCandidates.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
 
     html+=`<div class="standings-div">${confName}</div>`;
 
@@ -1236,10 +1256,38 @@ function renderNCAARankings(data, c) {
 }
 
 // ── PLAYOFF BRACKET ──
+async function fetchNCAAMarchMadnessBracket() {
+  const candidates = [
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/tournament/bracket',
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/bracket',
+    'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/summary'
+  ];
+  for (const url of candidates) {
+    try {
+      let data;
+      try { const r=await fetch(url,{signal:AbortSignal.timeout(6000)}); if(r.ok) data=await r.json(); } catch(e){}
+      if(!data){const r=await fetch(CORS_PROXY+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)}); if(r.ok) data=await r.json();}
+      const rounds = data?.rounds || data?.bracket?.rounds || [];
+      if (Array.isArray(rounds) && rounds.length) return data;
+    } catch (e) {}
+  }
+  return null;
+}
+
 async function fetchBracket() {
   const c=document.getElementById('standingsContainer');
-  if(c) c.innerHTML='<div style="color:var(--yellow);font-family:\'Space Mono\',monospace;font-size:10px">Fetching playoff bracket from ESPN...</div>';
+  if(c) c.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px">Fetching bracket from ESPN...</div>';
   try {
+    if (standingsLeague==='ncaa') {
+      const mm = await fetchNCAAMarchMadnessBracket();
+      if (mm) {
+        bracketCache[standingsLeague]=mm;
+        renderBracketData(mm);
+        return;
+      }
+      renderBracketUnavailable();
+      return;
+    }
     const path=LEAGUE_PATHS[standingsLeague]||'hockey/nhl';
     const url=`https://site.api.espn.com/apis/site/v2/sports/${path}/bracket`;
     let data;
@@ -1296,7 +1344,7 @@ function renderBracketUnavailable() {
   let msg='';
   if(standingsLeague==='nhl') msg=month>=4?'NHL playoffs in progress — bracket data may be loading.':'NHL playoffs begin in April. Switch to PROJECTED BRACKET to see the current projected field.';
   else if(standingsLeague==='nba') msg=month>=4?'NBA playoffs in progress — bracket data may be loading.':'NBA playoffs begin in April. Switch to PROJECTED BRACKET to see the current projected field.';
-  else msg='NCAA Tournament bracket available from mid-March through April. Switch to PROJECTED BRACKET to see current projected seedings.';
+  else msg='MARCH MADNESS bracket is shown here when ESPN publishes the live tournament tree (mid-March to April).';
 
   c.innerHTML=`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:20px;text-align:center">
     <div style="font-size:24px;margin-bottom:12px">🏆</div>
@@ -1311,6 +1359,7 @@ function renderProjectedBracket() {
   const data=standingsCache[standingsLeague];
   if(!data){c.innerHTML='<div style="color:var(--text3);font-size:12px">Load standings first</div>';return;}
   if(standingsLeague==='ncaa'){renderProjectedNCAA(data,c);return;}
+  const league=standingsLeague;
 
   // Build seedings from current standings
   const groups=data.children||[];
@@ -1322,19 +1371,13 @@ function renderProjectedBracket() {
     let allEntries=[];
     if(conf.children?.length) conf.children.forEach(div=>{ allEntries=[...allEntries,...(div.standings?.entries||div.entries||[])]; });
     else allEntries=conf.standings?.entries||conf.entries||[];
-    const sorted=allEntries.sort((a,b)=>{
-      const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-      return getV(b)-getV(a);
-    });
+    const sorted=allEntries.sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
 
     // Division leaders (auto-qualify) + wildcards
     let divLeaders=[];
     if(conf.children?.length) {
       conf.children.forEach(div=>{
-        const es=(div.standings?.entries||div.entries||[]).sort((a,b)=>{
-          const getV=e=>{const s={};(e.stats||[]).forEach(st=>{s[st.name||st.shortDisplayName]=parseFloat(st.displayValue||st.value)||0;});return s['winPercent']||s['points']||0;};
-          return getV(b)-getV(a);
-        });
+        const es=(div.standings?.entries||div.entries||[]).sort((a,b)=>standingsSortValue(b,league)-standingsSortValue(a,league));
         if(es.length) divLeaders.push(es[0]);
       });
     }
@@ -1344,7 +1387,6 @@ function renderProjectedBracket() {
     conferences.push({name:conf.name||conf.abbreviation,teams:playoff8});
   });
 
-  const league=standingsLeague;
   const month=new Date().getMonth()+1;
   const isLate=month>=3;
 
@@ -2091,6 +2133,7 @@ init();
   const STORAGE_KEY = 'edge_model_v4';
   const DAILY_KEY = 'dailyPicks';
   const SCORE_DAY_KEY = 'edge_score_day_v1';
+  const PICK_CYCLE_TS_KEY = 'edge_pick_cycle_ts_v1';
 
   function getState() {
     if (typeof window.state === 'object' && window.state) return window.state;
@@ -2225,6 +2268,65 @@ init();
     return out;
   }
 
+  function getMorningTemplatePicks() {
+    const leagues = ['NHL', 'NBA', 'NCAA'];
+    const out = [];
+    for (let i = 0; i < leagues.length; i += 1) {
+      const lg = leagues[i];
+      out.push({
+        id: Date.now() + i,
+        game: lg + ' slate',
+        pick: 'Auto-prep: run card and verify lineups for best ' + lg + ' value',
+        odds: '—',
+        edge: '',
+        league: lg,
+        isAutoPlaceholder: true,
+        addedAt: Date.now() + i
+      });
+    }
+    return out;
+  }
+
+  function mostRecentNonEmptyPickDay() {
+    ensureDailyPicks();
+    const days = Object.keys(window.state[DAILY_KEY] || {}).sort().reverse();
+    for (let i = 0; i < days.length; i += 1) {
+      const day = days[i];
+      if (day === todayKey()) continue;
+      const arr = window.state[DAILY_KEY][day];
+      if (Array.isArray(arr) && arr.length) return arr;
+    }
+    return [];
+  }
+
+  function ensureMorningPicksReady() {
+    ensureDailyPicks();
+    const arr = window.state[DAILY_KEY][todayKey()] || [];
+    const hour = new Date().getHours();
+    const isNight = hour < 5;
+    if (arr.length) return;
+    if (isNight) return;
+    const carry = mostRecentNonEmptyPickDay()
+      .filter(function (p) { return !p.isAutoPlaceholder; })
+      .slice(0, 5)
+      .map(function (p, i) {
+        return {
+          id: Date.now() + i,
+          game: p.game || '',
+          pick: p.pick || '',
+          odds: p.odds || '',
+          edge: p.edge || '',
+          league: p.league || '',
+          addedAt: Date.now() + i
+        };
+      });
+    if (carry.length) {
+      persistDailyPicks(carry);
+    } else {
+      persistDailyPicks(getMorningTemplatePicks());
+    }
+  }
+
   function fp(p) {
     return [String(p.game || '').toUpperCase(), String(p.pick || '').toUpperCase(), String(p.odds || '').toUpperCase()].join('|');
   }
@@ -2245,8 +2347,113 @@ init();
     // keep week of archives
     const keys = Object.keys(window.state[DAILY_KEY]).sort();
     for (let i = 0; i < keys.length - 7; i += 1) delete window.state[DAILY_KEY][keys[i]];
+    cycleAndSortPicks();
+    try { localStorage.setItem(PICK_CYCLE_TS_KEY, String(Date.now())); } catch (e) {}
     saveState();
   }
+
+  function pickConfidenceMeta(p) {
+    const edge = parsePercent(p && p.edge);
+    const ev = evPct(p && p.edge, p && p.odds);
+    if (edge !== null && ev !== null && edge >= 10 && ev >= 2) return { label: 'HIGH CONVICTION', color: 'var(--green)', tier: 3 };
+    if (edge !== null && ev !== null && edge >= 3 && ev > 0) return { label: 'MODEL LIKES', color: 'var(--blue)', tier: 2 };
+    return { label: 'REVIEW', color: 'var(--yellow)', tier: 1 };
+  }
+
+  function pickPriorityScore(p) {
+    const edge = parsePercent(p && p.edge);
+    const ev = evPct(p && p.edge, p && p.odds);
+    const conf = pickConfidenceMeta(p);
+    let score = 0;
+    score += conf.tier * 8;
+    if (edge !== null) score += edge * 1.8;
+    else score -= 4;
+    if (ev !== null) score += ev * 3.2;
+    else score -= 1.5;
+
+    const gameCtx = findScoreContextForPick(p);
+    if (gameCtx) {
+      if (gameCtx.status === 'inprogress') score += 5;
+      else if (gameCtx.status === 'scheduled') score += 2;
+      else if (gameCtx.status === 'closed') score -= 10;
+    }
+
+    const addedAt = Number(p && p.addedAt) || Number(p && p.id) || 0;
+    if (addedAt > 0) {
+      const hoursOld = (Date.now() - addedAt) / 3600000;
+      if (hoursOld > 24) score -= Math.min(6, (hoursOld - 24) * 0.2);
+    }
+    return Number(score.toFixed(3));
+  }
+
+  function cycleAndSortPicks() {
+    ensureDailyPicks();
+    const list = window.state[DAILY_KEY][todayKey()] || [];
+    if (!list.length) return false;
+    const now = Date.now();
+    for (let i = 0; i < list.length; i += 1) {
+      const p = list[i];
+      if (!p.addedAt) p.addedAt = Number(p.id) || (now + i);
+      p._autoRank = pickPriorityScore(p);
+      p._autoConfidence = pickConfidenceMeta(p).label;
+      p._autoCycleAt = now;
+    }
+    list.sort(function (a, b) {
+      const d = (Number(b._autoRank) || -9999) - (Number(a._autoRank) || -9999);
+      if (d !== 0) return d;
+      return (Number(b.addedAt) || 0) - (Number(a.addedAt) || 0);
+    });
+    saveState();
+    return true;
+  }
+
+  function maybeRunHourlyPickCycle(force) {
+    const now = Date.now();
+    let last = 0;
+    try { last = parseInt(localStorage.getItem(PICK_CYCLE_TS_KEY) || '0', 10) || 0; } catch (e) {}
+    if (!force && now - last < 3600000) return false;
+    const changed = cycleAndSortPicks();
+    try { localStorage.setItem(PICK_CYCLE_TS_KEY, String(now)); } catch (e) {}
+    return changed;
+  }
+
+  function installHourlyPickCycle() {
+    if (window.__hourlyPickCycleInstalled) return;
+    window.__hourlyPickCycleInstalled = true;
+    maybeRunHourlyPickCycle(true);
+    setInterval(function () {
+      if (maybeRunHourlyPickCycle(false)) {
+        const picksTab = document.getElementById('tab-picks');
+        if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
+      }
+    }, 60000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && maybeRunHourlyPickCycle(false)) {
+        const picksTab = document.getElementById('tab-picks');
+        if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
+      }
+    });
+  }
+
+  window.manualRefreshPicks = async function manualRefreshPicks() {
+    const status = document.getElementById('picksRefreshStatus');
+    const btn = document.getElementById('picksManualRefreshBtn');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Refreshing picks...';
+    try {
+      ensureMorningPicksReady();
+      maybeRunHourlyPickCycle(true);
+      if (typeof window.fetchAllScores === 'function') {
+        await window.fetchAllScores();
+      }
+      renderPicksTab();
+      if (status) status.textContent = 'Picks refreshed just now.';
+    } catch (e) {
+      if (status) status.textContent = 'Refresh failed. Try again.';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
 
   function openBetFormWithPrefill(p) {
     const setVal = function (id, v) {
@@ -2371,6 +2578,8 @@ init();
 
   function renderPicksTab() {
     ensureDailyPicks();
+    ensureMorningPicksReady();
+    maybeRunHourlyPickCycle(false);
     const c = document.getElementById('picksContainer');
     if (!c) return;
     const picks = window.state[DAILY_KEY][todayKey()] || [];
@@ -2379,15 +2588,15 @@ init();
       return;
     }
     c.innerHTML =
-      '<div class="alert alert-info" style="margin-bottom:10px">Daily picks auto-synced from model output.</div>' +
+      '<div class="alert alert-info" style="margin-bottom:10px">Daily picks auto-synced from model output. Auto-cycle runs hourly to rank best picks first.</div>' +
       picks
         .map(function (p) {
-          const edge = parsePercent(p.edge);
+          const edge = parsePercent(p && p.edge);
           const ev = evPct(p.edge, p.odds);
-          let conf = 'REVIEW';
-          let col = 'var(--yellow)';
-          if (edge !== null && ev !== null && edge >= 10 && ev >= 2) { conf = 'HIGH CONVICTION'; col = 'var(--green)'; }
-          else if (edge !== null && ev !== null && edge >= 3 && ev > 0) { conf = 'MODEL LIKES'; col = 'var(--blue)'; }
+          const meta = pickConfidenceMeta(p);
+          const conf = meta.label;
+          const col = meta.color;
+          const rank = Number(p && p._autoRank);
           const payload = encodeURIComponent(JSON.stringify(p));
           return (
             '<div class="pick-card ' + ((edge || 0) >= 10 ? 't1' : 't2') + '" data-pickdetail="' + payload + '" style="cursor:pointer">' +
@@ -2399,6 +2608,7 @@ init();
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || '—') + '</span>' +
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((ev !== null && ev > 0) ? 'var(--green)' : 'var(--yellow)') + '">EV ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</span>' +
             '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + conf + '</span>' +
+            '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text3)">RANK ' + (Number.isFinite(rank) ? rank.toFixed(1) : '—') + '</span>' +
             '</div>' +
             '<button class="btn" data-pickfill="' + payload + '" style="font-size:9px;border-color:var(--green);color:var(--green)">Use in Bet Log</button>' +
             '</div>'
@@ -2409,11 +2619,8 @@ init();
       card.addEventListener('click', function () {
         try {
           const p = JSON.parse(decodeURIComponent(card.getAttribute('data-pickdetail') || '{}'));
-          const edge = parsePercent(p.edge);
           const ev = evPct(p.edge, p.odds);
-          let conf = 'REVIEW';
-          if (edge !== null && ev !== null && edge >= 10 && ev >= 2) conf = 'HIGH CONVICTION';
-          else if (edge !== null && ev !== null && edge >= 3 && ev > 0) conf = 'MODEL LIKES';
+          const conf = pickConfidenceMeta(p).label;
           openPickModal(p, conf, ev);
         } catch (e) {}
       });
@@ -2426,6 +2633,11 @@ init();
         } catch (e) {}
       });
     });
+    const status = document.getElementById('picksRefreshStatus');
+    if (status) {
+      const now = new Date();
+      status.textContent = 'Last refresh ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · hourly auto-cycle active';
+    }
   }
 
   function bootstrapPicksFromChatHistory() {
@@ -2477,6 +2689,179 @@ init();
         renderPicksTab();
       }
     };
+  }
+
+  function getAllScoreGames() {
+    if (typeof window.espnScores !== 'object' || !espnScores) return [];
+    return []
+      .concat(Array.isArray(espnScores.nhl) ? espnScores.nhl : [])
+      .concat(Array.isArray(espnScores.nba) ? espnScores.nba : [])
+      .concat(Array.isArray(espnScores.ncaa) ? espnScores.ncaa : []);
+  }
+
+  function gameByKey(key) {
+    const k = String(key || '');
+    return getAllScoreGames().find(function (g) { return String(g.eventId || '') === k; }) || null;
+  }
+
+  function gameTeamTokens(game) {
+    return [String(game?.away || '').toUpperCase(), String(game?.home || '').toUpperCase()].map(function (t) { return t.replace(/[^A-Z]/g, ''); });
+  }
+
+  function gameMatchedBets(game) {
+    const s = getState();
+    if (!s || !Array.isArray(s.bets) || !game) return [];
+    const toks = gameTeamTokens(game).filter(Boolean);
+    return s.bets.filter(function (b) {
+      const text = String((b.game || '') + ' ' + (b.pick || '')).toUpperCase();
+      return toks.every(function (t) { return text.indexOf(t) >= 0; });
+    });
+  }
+
+  async function fetchJsonWithFallback(url) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (r.ok) return await r.json();
+    } catch (e) {}
+    const proxy = 'https://corsproxy.io/?' + encodeURIComponent(url);
+    const rr = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+    if (!rr.ok) throw new Error('HTTP ' + rr.status);
+    return rr.json();
+  }
+
+  function leaguePathFromGame(g) {
+    const lg = String(g?.league || '').toUpperCase();
+    if (lg === 'NHL') return 'hockey/nhl';
+    if (lg === 'NBA') return 'basketball/nba';
+    return 'basketball/mens-college-basketball';
+  }
+
+  async function fetchRosterSlice(teamId, game) {
+    if (!teamId) return [];
+    const path = leaguePathFromGame(game);
+    const url = 'https://site.api.espn.com/apis/site/v2/sports/' + path + '/teams/' + teamId + '/roster';
+    try {
+      const data = await fetchJsonWithFallback(url);
+      const groups = Array.isArray(data.athletes) ? data.athletes : [];
+      const names = [];
+      groups.forEach(function (g) {
+        const items = Array.isArray(g.items) ? g.items : (Array.isArray(g) ? g : [g]);
+        items.forEach(function (p) {
+          const nm = p && (p.fullName || p.displayName);
+          if (nm) names.push(nm);
+        });
+      });
+      return names.slice(0, 8);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function gameReasonBullets(game, bets) {
+    const out = [];
+    if (bets.length) {
+      out.push('This matchup is framed green because you have ' + bets.length + ' logged bet(s) involving these teams.');
+      const active = bets.filter(function (b) { return b.status === 'placed' || b.status === 'early' || b.status === 'pending'; });
+      if (active.length) out.push(active.length + ' bet(s) are still active/risk-on.');
+    } else {
+      out.push('No existing logged exposure on this matchup.');
+    }
+    if (game.status === 'inprogress') out.push('Game is live — update pace/clock can change in-play context quickly.');
+    if (game.status === 'scheduled') out.push('Pregame state — verify lineups and market movement before betting.');
+    if (game.status === 'closed') out.push('Final state — use this result for review and learning updates.');
+    return out;
+  }
+
+  async function openGameDetailModal(game) {
+    const existing = document.getElementById('gameDetailModal');
+    if (existing) existing.remove();
+    const bets = gameMatchedBets(game);
+    const reasons = gameReasonBullets(game, bets);
+    const modal = document.createElement('div');
+    modal.id = 'gameDetailModal';
+    modal.className = 'modal-overlay';
+    modal.onclick = function (e) { if (e.target === modal) modal.remove(); };
+    const matchup = (game.awayFull || game.away || 'AWAY') + ' @ ' + (game.homeFull || game.home || 'HOME');
+    modal.innerHTML =
+      '<div class="modal-box">' +
+      '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+      '<div><div style="font-size:18px;font-weight:700;color:#fff">' + matchup + '</div><div style="font-family:Space Mono,monospace;font-size:10px;color:var(--text3);margin-top:4px">' + (game.league || '') + ' · ' + (game.clock || 'Scheduled') + (game.period ? (' · ' + game.period) : '') + '</div></div>' +
+      '<button onclick="document.getElementById(\'gameDetailModal\').remove()" style="background:var(--bg4);border:1px solid var(--border2);color:var(--text2);font-family:Space Mono,monospace;font-size:10px;padding:6px 12px;border-radius:3px;cursor:pointer">✕ CLOSE</button>' +
+      '</div>' +
+      '<div style="padding:16px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px"><div style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">AWAY</div><div style="font-size:13px;font-weight:700">' + (game.awayFull || game.away || '—') + '</div><div style="font-family:Space Mono,monospace;font-size:15px;color:var(--text2)">' + (game.scoreAway == null ? '—' : game.scoreAway) + '</div></div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px"><div style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">HOME</div><div style="font-size:13px;font-weight:700">' + (game.homeFull || game.home || '—') + '</div><div style="font-family:Space Mono,monospace;font-size:15px;color:var(--text2)">' + (game.scoreHome == null ? '—' : game.scoreHome) + '</div></div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:10px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--green);letter-spacing:.8px;margin-bottom:6px">WHY THIS CARD IS HIGHLIGHTED</div>' +
+      reasons.map(function (r) { return '<div style="font-size:12px;color:var(--text2);line-height:1.6">• ' + r + '</div>'; }).join('') +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:10px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--yellow);letter-spacing:.8px;margin-bottom:6px">PREGAME SNAPSHOT</div>' +
+      '<div id="gdm-pregame" style="font-size:12px;color:var(--text3)">Loading lines / status...</div>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px">' +
+      '<div style="font-family:Space Mono,monospace;font-size:9px;color:var(--accent);letter-spacing:.8px;margin-bottom:6px">ROSTER SNAPSHOT (TOP 8)</div>' +
+      '<div id="gdm-rosters" style="font-size:12px;color:var(--text3)">Loading roster data...</div>' +
+      '</div>' +
+      '</div></div>';
+    document.body.appendChild(modal);
+
+    if (game.eventId) {
+      const path = leaguePathFromGame(game);
+      const summaryUrl = 'https://site.api.espn.com/apis/site/v2/sports/' + path + '/summary?event=' + game.eventId;
+      try {
+        const summary = await fetchJsonWithFallback(summaryUrl);
+        const comp = summary?.header?.competitions?.[0] || summary?.competitions?.[0] || {};
+        const od = comp?.odds?.[0] || {};
+        const broadcast = (summary?.header?.competitions?.[0]?.broadcasts || []).map(function (b) { return b?.names?.[0]; }).filter(Boolean).join(', ');
+        const statusText = comp?.status?.type?.detail || game.clock || 'Scheduled';
+        const lineBits = [];
+        if (od.details) lineBits.push(od.details);
+        if (od.overUnder) lineBits.push('O/U ' + od.overUnder);
+        if (od.overUnderOdds) lineBits.push('OU Odds ' + od.overUnderOdds);
+        if (broadcast) lineBits.push('TV: ' + broadcast);
+        const pre = document.getElementById('gdm-pregame');
+        if (pre) pre.innerHTML = '<div style="line-height:1.6"><div><strong>Status:</strong> ' + statusText + '</div><div><strong>Market:</strong> ' + (lineBits.join(' · ') || 'No pregame line posted yet') + '</div></div>';
+      } catch (e) {
+        const pre = document.getElementById('gdm-pregame');
+        if (pre) pre.textContent = 'Pregame summary unavailable right now.';
+      }
+    }
+
+    try {
+      const awayRoster = await fetchRosterSlice(game.awayTeamId, game);
+      const homeRoster = await fetchRosterSlice(game.homeTeamId, game);
+      const ro = document.getElementById('gdm-rosters');
+      if (ro) {
+        const awayList = awayRoster.length ? awayRoster.join(', ') : 'No roster data';
+        const homeList = homeRoster.length ? homeRoster.join(', ') : 'No roster data';
+        ro.innerHTML =
+          '<div style="margin-bottom:8px"><strong>' + (game.away || 'Away') + ':</strong> ' + awayList + '</div>' +
+          '<div><strong>' + (game.home || 'Home') + ':</strong> ' + homeList + '</div>';
+      }
+    } catch (e) {
+      const ro = document.getElementById('gdm-rosters');
+      if (ro) ro.textContent = 'Roster data unavailable.';
+    }
+  }
+
+  function installGameInteractivity() {
+    if (window.__gameInteractivityInstalled) return;
+    window.__gameInteractivityInstalled = true;
+    function attach(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container || container.__gameClickBound) return;
+      container.__gameClickBound = true;
+      container.addEventListener('click', function (e) {
+        const row = e.target && e.target.closest ? e.target.closest('[data-gamekey]') : null;
+        if (!row) return;
+        const g = gameByKey(row.getAttribute('data-gamekey'));
+        if (g) openGameDetailModal(g);
+      });
+    }
+    ['liveScores', 'nhlScoresFull', 'nbaScoresFull', 'ncaaScoresFull'].forEach(attach);
   }
 
   function getSelectedScoreDateKey() {
@@ -2559,22 +2944,39 @@ init();
       ncaa: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
     };
 
+    async function fetchLeagueForDay(endpoint, dayKey, opts) {
+      const options = opts || {};
+      const withDate = function (u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dates=' + dayKey; };
+      const withGroups = function (u) {
+        if (u.indexOf('groups=') >= 0) return u;
+        return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'groups=50&limit=500';
+      };
+      const primary = options.ncaa ? withDate(withGroups(endpoint)) : withDate(endpoint);
+      let data = null;
+      try { data = await fetchLeague(primary); } catch (e) {}
+      if (options.ncaa) {
+        const empty = !data || !Array.isArray(data.events) || !data.events.length;
+        if (empty) {
+          try { data = await fetchLeague(withGroups(endpoint)); } catch (e) {}
+        }
+      }
+      return data;
+    }
+
     window.fetchAllScores = async function fetchAllScoresDateAware() {
       const selected = window.__selectedScoreDayKey || getSelectedScoreDateKey();
       const dayDate = fromScoreDateKey(selected) || getOperationalBaseDate();
       const dayKey = toScoreDateKey(dayDate);
       const dayHuman = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-      const withDate = function (u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'dates=' + dayKey; };
       const setStatus = function (msg, col) {
         const s = document.getElementById('scoreStatus'); if (s) { s.textContent = msg; s.style.color = col; }
         const t = document.getElementById('scoreTabStatus'); if (t) { t.textContent = msg; t.style.color = col; }
       };
 
-      setStatus('Fetching ' + dayHuman + '...','var(--yellow)');
       const [nhl, nba, ncaa] = await Promise.allSettled([
-        fetchLeague(withDate(baseEndpoints.nhl)),
-        fetchLeague(withDate(baseEndpoints.nba)),
-        fetchLeague(withDate(baseEndpoints.ncaa))
+        fetchLeagueForDay(baseEndpoints.nhl, dayKey),
+        fetchLeagueForDay(baseEndpoints.nba, dayKey),
+        fetchLeagueForDay(baseEndpoints.ncaa, dayKey, { ncaa: true })
       ]);
       let ok = false;
       if (nhl.status === 'fulfilled') { espnScores.nhl = indexESPNGames(nhl.value, 'NHL'); ok = true; }
@@ -2592,6 +2994,193 @@ init();
       }
       if (typeof window.renderScoreDateStrip === 'function') window.renderScoreDateStrip();
     };
+  }
+
+  function installScoreSearchAndFilter() {
+    if (window.__scoreFilterInstalled) return;
+    window.__scoreFilterInstalled = true;
+    window.__scoreSearch = '';
+    window.__scoreFilter = 'all';
+    window.setScoreFilter = function setScoreFilter(mode, btn) {
+      window.__scoreFilter = mode || 'all';
+      const bar = document.getElementById('scoreFilters');
+      if (bar) {
+        bar.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+        if (btn) btn.classList.add('active');
+      }
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+    };
+    window.filterScores = function filterScores() {
+      const el = document.getElementById('scoreSearch');
+      window.__scoreSearch = String(el && el.value ? el.value : '').toUpperCase();
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+    };
+    if (typeof window.renderScoresFull === 'function' && !window.__renderScoresFullPatchedForFilter) {
+      const base = window.renderScoresFull;
+      window.__renderScoresFullPatchedForFilter = true;
+      window.renderScoresFull = function renderScoresFullWithFilters() {
+        base();
+        const mode = window.__scoreFilter || 'all';
+        const q = window.__scoreSearch || '';
+        ['nhlScoresFull', 'nbaScoresFull', 'ncaaScoresFull'].forEach(function (id) {
+          const container = document.getElementById(id);
+          if (!container) return;
+          container.querySelectorAll('.sb-row').forEach(function (row) {
+            const text = String(row.textContent || '').toUpperCase();
+            const isLive = row.classList.contains('live');
+            const isFinal = row.classList.contains('final');
+            const passMode = mode === 'all' || (mode === 'live' && isLive) || (mode === 'upcoming' && !isLive && !isFinal) || (mode === 'final' && isFinal);
+            const passQuery = !q || text.indexOf(q) >= 0;
+            row.style.display = passMode && passQuery ? '' : 'none';
+          });
+        });
+      };
+    }
+  }
+
+  function installMarchMadnessBehavior() {
+    if (window.__marchMadnessInstalled) return;
+    window.__marchMadnessInstalled = true;
+
+    function mmRoundOrder(label) {
+      const s = String(label || '').toLowerCase();
+      if (s.indexOf('first four') >= 0 || s.indexOf('play-in') >= 0) return 1;
+      if (s.indexOf('1st') >= 0 || s.indexOf('first round') >= 0) return 2;
+      if (s.indexOf('2nd') >= 0 || s.indexOf('second round') >= 0) return 3;
+      if (s.indexOf('sweet 16') >= 0) return 4;
+      if (s.indexOf('elite 8') >= 0 || s.indexOf('elite eight') >= 0) return 5;
+      if (s.indexOf('final four') >= 0 || s.indexOf('semifinal') >= 0) return 6;
+      if (s.indexOf('championship') >= 0 || s.indexOf('title') >= 0 || s.indexOf('final') >= 0) return 7;
+      return 99;
+    }
+
+    function mmMetaFromEvent(ev) {
+      const comp = ev && ev.competitions && ev.competitions[0] ? ev.competitions[0] : {};
+      const notes = (comp.notes || []).map(function (n) { return n && (n.headline || n.text || ''); }).filter(Boolean);
+      const joined = notes.join(' | ');
+      const isMm = Number(comp.tournamentId) === 22 || /NCAA Men's Basketball Championship|March Madness|Final Four|Elite 8|Sweet 16/i.test(joined);
+      if (!isMm) return null;
+
+      let region = 'National';
+      let round = '';
+      const full = joined || String(ev && ev.name || '');
+      const regionRound = full.match(/-\s*([^-|]+Region)\s*-\s*([^|]+)/i);
+      if (regionRound) {
+        region = regionRound[1].trim();
+        round = regionRound[2].trim();
+      } else {
+        const roundOnly = full.match(/-\s*(First Four|1st Round|First Round|2nd Round|Second Round|Sweet 16|Elite 8|Final Four|Championship Game)/i);
+        round = roundOnly ? roundOnly[1].trim() : '';
+      }
+      if (!round) round = (comp.status && comp.status.type && comp.status.type.description) || 'Tournament';
+      return { region: region, round: round, order: mmRoundOrder(round), note: full };
+    }
+
+    function renderMarchMadnessBracketFromEvents(events, container) {
+      const rows = [];
+      (events || []).forEach(function (ev) {
+        const meta = mmMetaFromEvent(ev);
+        if (!meta) return;
+        const comp = ev && ev.competitions && ev.competitions[0] ? ev.competitions[0] : {};
+        const away = (comp.competitors || []).find(function (x) { return x.homeAway === 'away'; }) || {};
+        const home = (comp.competitors || []).find(function (x) { return x.homeAway === 'home'; }) || {};
+        rows.push({
+          order: meta.order,
+          round: meta.round,
+          region: meta.region,
+          date: ev.date || '',
+          status: (comp.status && comp.status.type && (comp.status.type.shortDetail || comp.status.type.detail || comp.status.type.description)) || 'Scheduled',
+          isLive: !!(comp.status && comp.status.type && comp.status.type.state === 'in'),
+          isFinal: !!(comp.status && comp.status.type && comp.status.type.completed),
+          away: (away.team && (away.team.abbreviation || away.team.shortDisplayName || away.team.displayName)) || 'TBD',
+          home: (home.team && (home.team.abbreviation || home.team.shortDisplayName || home.team.displayName)) || 'TBD',
+          awayScore: away.score,
+          homeScore: home.score
+        });
+      });
+      if (!rows.length || !container) return false;
+      rows.sort(function (a, b) {
+        if (a.order !== b.order) return a.order - b.order;
+        return String(a.date).localeCompare(String(b.date));
+      });
+      const byRound = {};
+      rows.forEach(function (r) {
+        if (!byRound[r.round]) byRound[r.round] = [];
+        byRound[r.round].push(r);
+      });
+      const rounds = Object.keys(byRound).sort(function (a, b) { return mmRoundOrder(a) - mmRoundOrder(b); });
+      let html = '<div style="margin-bottom:10px;font-family:Space Mono,monospace;font-size:10px;color:var(--yellow)">LIVE MARCH MADNESS BRACKET · AUTO-UPDATED</div>';
+      html += '<div style="display:grid;grid-auto-flow:column;grid-auto-columns:minmax(240px,1fr);gap:10px;overflow-x:auto;padding-bottom:4px">';
+      rounds.forEach(function (roundName) {
+        html += '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px">';
+        html += '<div style="font-family:Space Mono,monospace;font-size:9px;letter-spacing:1px;color:var(--accent);margin-bottom:8px">' + roundName.toUpperCase() + '</div>';
+        byRound[roundName].forEach(function (g) {
+          html += '<div style="border:1px solid var(--border2);border-radius:4px;padding:7px;margin-bottom:7px;background:' + (g.isLive ? 'rgba(255,159,67,.08)' : 'var(--bg2)') + '">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span style="font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">' + (g.region || 'National') + '</span><span style="font-family:Space Mono,monospace;font-size:9px;color:' + (g.isLive ? 'var(--orange)' : g.isFinal ? 'var(--green)' : 'var(--text3)') + '">' + (g.isLive ? 'LIVE' : g.isFinal ? 'FINAL' : 'SCHED') + '</span></div>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>' + g.away + '</span><strong>' + (g.awayScore == null ? '—' : g.awayScore) + '</strong></div>';
+          html += '<div style="display:flex;justify-content:space-between;font-size:12px"><span>' + g.home + '</span><strong>' + (g.homeScore == null ? '—' : g.homeScore) + '</strong></div>';
+          html += '<div style="margin-top:5px;font-family:Space Mono,monospace;font-size:9px;color:var(--text3)">' + g.status + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+      return true;
+    }
+
+    function syncBracketTabLabel() {
+      const b = document.getElementById('stSub-bracket');
+      if (!b) return;
+      b.textContent = (String(window.standingsLeague || '').toLowerCase() === 'ncaa') ? 'MARCH MADNESS BRACKET' : 'PLAYOFF BRACKET';
+    }
+
+    if (typeof window.setLeagueFilter === 'function') {
+      const baseSetLeague = window.setLeagueFilter;
+      window.setLeagueFilter = function setLeagueFilterPatched(league, btn) {
+        baseSetLeague(league, btn);
+        syncBracketTabLabel();
+      };
+    }
+
+    if (typeof window.fetchBracket === 'function') {
+      const baseFetchBracket = window.fetchBracket;
+      window.fetchBracket = async function fetchBracketPatched() {
+        if (String(window.standingsLeague || '').toLowerCase() !== 'ncaa') return baseFetchBracket();
+        const c = document.getElementById('standingsContainer');
+        if (c) c.innerHTML = '<div style="color:var(--text3);font-family:Space Mono,monospace;font-size:10px">Fetching March Madness bracket from ESPN...</div>';
+        const selected = (typeof getSelectedScoreDateKey === 'function') ? getSelectedScoreDateKey() : null;
+        const selectedDate = (typeof fromScoreDateKey === 'function' && selected) ? fromScoreDateKey(selected) : new Date();
+        const baseDate = selectedDate || new Date();
+        const start = new Date(baseDate);
+        const end = new Date(baseDate);
+        start.setDate(baseDate.getDate() - 14);
+        end.setDate(baseDate.getDate() + 14);
+        const fmt = function (d) { return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+        const range = fmt(start) + '-' + fmt(end);
+        const urls = [
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/tournament/bracket',
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/bracket',
+          'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=500&seasontype=3&dates=' + range
+        ];
+        for (let i = 0; i < urls.length; i += 1) {
+          try {
+            const data = await fetchJsonWithFallback(urls[i]);
+            const rounds = data?.rounds || data?.bracket?.rounds || [];
+            if (rounds.length && typeof window.renderBracketData === 'function') {
+              window.renderBracketData(data);
+              return;
+            }
+            if (Array.isArray(data?.events) && data.events.length && c) {
+              if (renderMarchMadnessBracketFromEvents(data.events, c)) return;
+            }
+          } catch (e) {}
+        }
+        if (typeof window.renderBracketUnavailable === 'function') window.renderBracketUnavailable();
+      };
+    }
+
+    syncBracketTabLabel();
   }
 
   function installLiveOneSecondSync() {
@@ -2669,12 +3258,17 @@ init();
 
   // init enhancements
   ensureDailyPicks();
+  ensureMorningPicksReady();
   setSelectedScoreDateKey(getSelectedScoreDateKey());
   installScoreDateNavigator();
   installDateAwareScoreFetch();
+  installScoreSearchAndFilter();
+  installGameInteractivity();
+  installMarchMadnessBehavior();
   bootstrapPicksFromChatHistory();
   patchAppendMsgForPicks();
   patchAddBetForPicks();
+  installHourlyPickCycle();
   renderPicksTab();
   if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
   installLiveOneSecondSync();
