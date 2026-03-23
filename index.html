@@ -925,6 +925,8 @@ function indexESPNGames(data, league) {
       home:home.team?.abbreviation,
       awayFull:away.team?.displayName,
       homeFull:home.team?.displayName,
+      awayLogo:away.team?.logo||'',
+      homeLogo:home.team?.logo||'',
       awayTeamId:away.team?.id||'',
       homeTeamId:home.team?.id||'',
       scoreAway:live||done?parseInt(away.score||0):null,
@@ -967,10 +969,12 @@ function renderScores() {
     const live=g.status==='inprogress';const done=g.status==='closed';
     const sa=g.scoreAway??'',sh=g.scoreHome??'';
     const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
+    const al = g.awayLogo ? `<img src="${g.awayLogo}" alt="${g.away}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">` : '';
+    const hl = g.homeLogo ? `<img src="${g.homeLogo}" alt="${g.home}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">` : '';
     return `<div class="score-card ${hasBet(g)?'has-bet':''} ${live?'live-game':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer" onclick="if(window.openGameById)window.openGameById('${g.eventId||''}')">
       <div class="score-league">${g.league} ${live?'<span style="color:var(--orange)">● LIVE</span>':''}</div>
-      <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
-      <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
+      <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${al}${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
+      <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${hl}${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
       <div class="score-time ${live?'live':''}">${g.clock}${g.period?' · '+g.period:''}</div>
     </div>`;
   }).join('');
@@ -985,11 +989,13 @@ function renderScoresFull() {
     return sorted.map(g=>{
       const live=g.status==='inprogress',done=g.status==='closed',bet=hasBet(g);
       const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
+      const al = g.awayLogo ? `<img src="${g.awayLogo}" alt="${g.away}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">` : '';
+      const hl = g.homeLogo ? `<img src="${g.homeLogo}" alt="${g.home}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">` : '';
       return `<div class="sb-row ${live?'live':done?'final':''} ${bet?'has-bet':''}" data-gamekey="${g.eventId||''}" style="cursor:pointer" onclick="if(window.openGameById)window.openGameById('${g.eventId||''}')">
         ${bet?'<div style="position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--green)"></div>':''}
         <div class="sb-teams">
-          <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
-          <div class="sb-team-row"><span class="sb-team-name ${wh?'winner':''}">${g.home}</span><span class="sb-score ${wh?'winner':''}">${g.scoreHome??''}</span></div>
+          <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${al}${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
+          <div class="sb-team-row"><span class="sb-team-name ${wh?'winner':''}">${hl}${g.home}</span><span class="sb-score ${wh?'winner':''}">${g.scoreHome??''}</span></div>
         </div>
         <div class="sb-meta"><div class="sb-clock ${live?'live':''}">${live?'● ':''} ${g.clock}</div>${g.period?`<div class="sb-period">${g.period}</div>`:''}</div>
       </div>`;
@@ -1084,6 +1090,7 @@ function renderStandingsView() {
 function buildTeamRow(entry, idx, playoffLine, league, isWildcard=false) {
   const team=entry.team?.displayName||entry.team?.shortDisplayName||'—';
   const abbr=entry.team?.abbreviation||'';
+  const logo=entry.team?.logos?.[0]?.href||entry.team?.logo||'';
   const teamId=entry.team?.id||'';
   const stats={};(entry.stats||[]).forEach(s=>{stats[s.name||s.shortDisplayName]=s.displayValue||s.value;});
   const w=stats['wins']||stats['W']||'—';
@@ -1110,7 +1117,7 @@ function buildTeamRow(entry, idx, playoffLine, league, isWildcard=false) {
   const eJson=encodeURIComponent(JSON.stringify({team,abbr,teamId,w,l,otl,pct,gb,l10,streak,inPlayoff:inPO,bubble,eliminated,league,wins,losses,otLosses:otlN,gp}));
   return `<tr class="${rowClass}" onclick="openTeamModal('${eJson}')" style="cursor:pointer">
     <td class="rank">${idx+1}</td>
-    <td><span class="team-name">${team}</span> <span style="color:var(--text3);font-size:10px">${abbr}</span></td>
+    <td>${logo?`<img src="${logo}" alt="${abbr}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">`:''}<span class="team-name">${team}</span> <span style="color:var(--text3);font-size:10px">${abbr}</span></td>
     <td class="num">${w}</td><td class="num">${l}</td>
     ${league==='nhl'?`<td class="num">${otl}</td>`:''}
     <td class="num">${typeof pct==='number'?pct.toFixed(3):pct}</td>
@@ -2333,6 +2340,7 @@ init();
     const out = [];
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
+      if (/\bSLATE\b/i.test(line)) continue;
       const gm = line.match(/([A-Z]{2,4})\s*(?:@|vs\.?|v)\s*([A-Z]{2,4})/i);
       const om = line.match(/([+-]\d{2,4}|EVEN|PK|PICK)/i);
       if (!gm) continue;
@@ -2354,6 +2362,53 @@ init();
       if (out.length >= 12) break;
     }
     return out;
+  }
+
+  function isPlaceholderPick(p) {
+    if (!p || typeof p !== 'object') return false;
+    if (p.isAutoPlaceholder) return true;
+    const g = String(p.game || '');
+    const k = String(p.pick || '');
+    return /\bslate\b/i.test(g) || /\bauto-prep\b/i.test(k);
+  }
+
+  function buildAutoGamePicksFromScores(limit) {
+    const max = Number.isFinite(limit) ? Math.max(1, limit) : 12;
+    const games = getAllScoreGames()
+      .filter(function (g) { return g && (g.status === 'scheduled' || g.status === 'inprogress'); })
+      .slice(0, max);
+    const now = Date.now();
+    return games.map(function (g, i) {
+      const away = String(g.away || '').toUpperCase() || 'AWAY';
+      const home = String(g.home || '').toUpperCase() || 'HOME';
+      return {
+        id: now + i,
+        game: away + ' vs ' + home,
+        pick: home + ' ML',
+        odds: '-110',
+        edge: '3.2%',
+        league: String(g.league || '').toUpperCase() || 'NHL',
+        isAutoGenerated: true,
+        sourceEventId: g.eventId || '',
+        addedAt: now + i
+      };
+    });
+  }
+
+  function seedPicksFromLiveScores(forceReplace) {
+    ensureDailyPicks();
+    const day = todayKey();
+    const list = window.state[DAILY_KEY][day] || [];
+    const actionableCount = list.filter(function (p) { return !isPlaceholderPick(p); }).length;
+    if (!forceReplace && actionableCount > 0) return false;
+    const generated = buildAutoGamePicksFromScores(12);
+    if (!generated.length) return false;
+    if (forceReplace || actionableCount === 0) {
+      window.state[DAILY_KEY][day] = list.filter(function (p) { return !isPlaceholderPick(p); });
+      if (!window.state[DAILY_KEY][day].length) window.state[DAILY_KEY][day] = [];
+    }
+    persistDailyPicks(generated);
+    return true;
   }
 
   function getMorningTemplatePicks() {
@@ -2395,6 +2450,11 @@ init();
     const isNight = hour < 5;
     if (arr.length) return false;
     if (isNight) return false;
+    const autoFromScores = buildAutoGamePicksFromScores(12);
+    if (autoFromScores.length) {
+      persistDailyPicks(autoFromScores);
+      return true;
+    }
     const carry = mostRecentNonEmptyPickDay()
       .filter(function (p) { return !p.isAutoPlaceholder; })
       .slice(0, 5)
@@ -2533,13 +2593,18 @@ init();
     if (btn) btn.disabled = true;
     if (status) status.textContent = 'Refreshing picks...';
     try {
-      const seeded = ensureMorningPicksReady();
-      maybeRunHourlyPickCycle(true);
       if (typeof window.fetchAllScores === 'function') {
         await window.fetchAllScores();
       }
+      const seededFromScores = seedPicksFromLiveScores(true);
+      const seededMorning = ensureMorningPicksReady();
+      const reseededFromScores = seedPicksFromLiveScores(false);
+      maybeRunHourlyPickCycle(true);
       renderPicksTab();
-      if (status) status.textContent = seeded ? 'Picks refreshed and seeded.' : 'Picks refreshed just now.';
+      if (status) {
+        const seeded = seededFromScores || seededMorning || reseededFromScores;
+        status.textContent = seeded ? 'Picks refreshed with current games.' : 'Picks refreshed just now.';
+      }
     } catch (e) {
       if (status) status.textContent = 'Refresh failed. Try again.';
     } finally {
@@ -2671,10 +2736,13 @@ init();
   function renderPicksTab() {
     ensureDailyPicks();
     ensureMorningPicksReady();
+    seedPicksFromLiveScores(false);
     maybeRunHourlyPickCycle(false);
     const c = document.getElementById('picksContainer');
     if (!c) return;
-    const picks = window.state[DAILY_KEY][todayKey()] || [];
+    const picksRaw = window.state[DAILY_KEY][todayKey()] || [];
+    const actionable = picksRaw.filter(function (p) { return !isPlaceholderPick(p); });
+    const picks = actionable.length ? actionable : picksRaw;
     if (!picks.length) {
       c.innerHTML = '<div class="pick-card"><div style="color:var(--text3);font-size:12px">No parsed picks yet. Run card in chat and picks will auto-appear here.</div></div>';
       return;
@@ -3288,6 +3356,7 @@ init();
       inFlight = true;
       try {
         await baseFetch();
+        if (seedPicksFromLiveScores(false)) renderPicksTab();
       } finally {
         inFlight = false;
       }
