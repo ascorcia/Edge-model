@@ -790,6 +790,7 @@ body {
 <div class="nav">
   <button class="nav-tab active" onclick="showTab('dashboard',this)">DASHBOARD</button>
   <button class="nav-tab" onclick="showTab('scores',this)">SCORES</button>
+  <button class="nav-tab" onclick="showTab('teams',this)">TEAMS</button>
   <button class="nav-tab" onclick="showTab('picks',this)">PICKS</button>
   <button class="nav-tab" onclick="showTab('betlog',this)">BET LOG</button>
   <button class="nav-tab" onclick="showTab('postbets',this)">POST-GAME</button>
@@ -852,6 +853,14 @@ body {
 
     <!-- SCORES TAB -->
     <div id="tab-scores" class="tab-hidden">
+      <input id="scoreSearch" placeholder="Search team — e.g. NYR, Rangers, OTT..." oninput="filterScores(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;padding:9px 14px;outline:none;margin-bottom:10px;box-sizing:border-box">
+<div style="display:flex;gap:6px;margin-bottom:12px">
+  <button class="btn" id="sfAll" onclick="setScoreFilter('all',this)" style="border-color:var(--green);color:var(--green)">ALL</button>
+  <button class="btn" id="sfLive" onclick="setScoreFilter('live',this)">LIVE</button>
+  <button class="btn" id="sfToday" onclick="setScoreFilter('today',this)">TODAY</button>
+  <button class="btn" id="sfUpcoming" onclick="setScoreFilter('upcoming',this)">UPCOMING</button>
+</div>
+
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--text2)">All NHL & NBA games — auto-refreshes every 30s</div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1311,6 +1320,24 @@ body {
         </div>
       </div>
     </div>
+<div id="tab-teams" class="tab-hidden">
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn" id="leagueNHL" onclick="setTeamsLeague('nhl',this)" style="border-color:var(--green);color:var(--green)">NHL</button>
+    <button class="btn" id="leagueNBA" onclick="setTeamsLeague('nba',this)">NBA</button>
+    <div style="display:flex;gap:8px;margin-left:auto">
+      <button class="btn" id="viewStandings" onclick="setTeamsView('standings',this)" style="border-color:var(--green);color:var(--green)">STANDINGS</button>
+      <button class="btn" id="viewPlayoffs" onclick="setTeamsView('playoffs',this)">PLAYOFF PICTURE</button>
+      <button class="btn" id="viewTeam" onclick="setTeamsView('team',this)">TEAM PAGE</button>
+    </div>
+  </div>
+  <div id="teamsViewStandings"><div id="standingsContent"><div style="color:var(--text3);font-size:12px;padding:20px 0">Click NHL or NBA above.</div></div></div>
+  <div id="teamsViewPlayoffs" style="display:none"><div id="playoffContent"></div></div>
+  <div id="teamsViewTeam" style="display:none">
+    <input id="teamSearchInput" placeholder="Search team — e.g. Rangers, Bruins, Lakers..." oninput="searchTeam(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;padding:9px 14px;outline:none;margin-bottom:8px;box-sizing:border-box">
+    <div id="teamSearchResults"></div>
+    <div id="teamPageContent"><div style="color:var(--text3);font-size:12px;padding:20px 0">Search for a team above.</div></div>
+  </div>
+</div>
 
   </div><!-- end content -->
 
@@ -2854,8 +2881,65 @@ function init() {
   // Run auto-learn on existing data immediately
   setTimeout(autoLearn, 500);
 }
+// SCORE SEARCH & FILTER
+let scoreFilter='all';
+function filterScores(q){
+  q=(q||'').toUpperCase();
+  document.querySelectorAll('#nhlScoresFull .sb-row,#nbaScoresFull .sb-row,#ncaaScoresFull .sb-row').forEach(r=>{
+    r.style.display=(!q||r.textContent.toUpperCase().includes(q))?'':'none';
+  });
+}
+function setScoreFilter(f,btn){
+  scoreFilter=f;
+  ['sfAll','sfLive','sfToday','sfUpcoming'].forEach(id=>{const b=document.getElementById(id);if(b){b.style.borderColor='';b.style.color='';}});
+  btn.style.borderColor='var(--green)';btn.style.color='var(--green)';
+  document.querySelectorAll('#nhlScoresFull .sb-row,#nbaScoresFull .sb-row,#ncaaScoresFull .sb-row').forEach(r=>{
+    let show=true;
+    if(f==='live'&&!r.classList.contains('live'))show=false;
+    if(f==='upcoming'&&!r.classList.contains('upcoming'))show=false;
+    r.style.display=show?'':'none';
+  });
+}
+
+// GAME DETAIL
+function showGameDetail(away,home){
+  const allG=[...espnScores.nhl,...espnScores.nba,...espnScores.ncaa];
+  const g=allG.find(x=>x.away===away&&x.home===home);
+  const overlay=document.getElementById('gameDetailOverlay');
+  const content=document.getElementById('gdContent');
+  if(!overlay||!content)return;
+  const live=g&&g.status==='inprogress',done=g&&g.status==='closed',up=g&&g.status==='scheduled';
+  const total=g&&g.scoreAway!==null&&g.scoreHome!==null?g.scoreAway+g.scoreHome:null;
+  const wA=done&&g.scoreAway>g.scoreHome,wH=done&&g.scoreHome>g.scoreAway;
+  const pe=state.passes.find(p=>{const pg=p.game.toUpperCase();return pg.includes(away)||pg.includes(home);});
+  const be=state.bets.find(b=>{const bg=b.game.toUpperCase();return bg.includes(away)||bg.includes(home);});
+  const re=state.reviews.find(r=>{const rg=r.game.toUpperCase();return rg.includes(away)||rg.includes(home);});
+  let paceHtml='';
+  if(g&&live&&total!==null&&g.period){
+    const isNHL=g.league==='NHL';
+    const pn=parseInt((g.period||'').replace(/[^0-9]/g,''))||1;
+    const pm=isNHL?20:12,tp=isNHL?3:4;
+    const cp=(g.clock||'').match(/(\d+):(\d+)/);
+    const ml=cp?parseInt(cp[1])+parseInt(cp[2])/60:pm/2;
+    const elapsed=(pn-1)*pm+(pm-ml);
+    const pace=elapsed>2?Math.round(total*(tp*pm/elapsed)):null;
+    if(pace!==null){
+      const bl=be?parseFloat((be.pick.match(/[\d.]+/)||[0])[0]):null;
+      const isO=be&&be.pick.includes('OVER'),isU=be&&be.pick.includes('UNDER');
+      const ot=bl!==null?(isO&&pace>=bl)||(isU&&pace<=bl):null;
+      const pc=ot===null?'var(--text)':ot?'var(--green)':'var(--red)';
+      const pct=Math.min(100,Math.round((elapsed/(tp*pm))*100));
+      paceHtml=`<div style="margin-bottom:14px"><div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">LIVE PACE TRACKER</div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text2)">Current Total</span><span style="font-family:'Space Mono',monospace"​​​​​​​​​​​​​​​​
 
 init();
 </script>
+          <div id="gameDetailOverlay" onclick="closeGameDetail(event)" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.78);z-index:300;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:20px;position:relative">
+    <button onclick="closeGameDetail()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">&#x2715;</button>
+    <div id="gdContent"></div>
+  </div>
+</div>
+
 </body>
 </html>
