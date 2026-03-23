@@ -113,6 +113,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .score-card.has-bet{border-color:var(--green)}
 .score-card.has-bet::before{content:'●';position:absolute;top:6px;right:6px;color:var(--green);font-size:8px}
 .score-card.live-game{border-color:var(--orange)}
+.score-card,.sb-row{transition:transform .15s ease,border-color .2s ease,box-shadow .2s ease}
+.score-card:hover,.sb-row:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.24)}
 .score-league{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:4px}
 .score-teams{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
 .score-team{font-size:12px;font-weight:600}
@@ -122,22 +124,22 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 
 /* ── STANDINGS ── */
 .st-sub-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.st-sub-tab{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:5px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text3);cursor:pointer;text-transform:uppercase;transition:all .15s}
-.st-sub-tab:hover{color:var(--text2);border-color:var(--border2)}
+.st-sub-tab{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:6px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text2);cursor:pointer;text-transform:uppercase;transition:all .15s}
+.st-sub-tab:hover{color:var(--text);border-color:var(--text3)}
 .st-sub-tab.active{border-color:var(--accent);color:var(--accent)}
 
-.standings-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
-.standings-table th{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);padding:6px 8px;text-align:left;border-bottom:1px solid var(--border2);background:var(--bg3)}
+.standings-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.standings-table th{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);padding:8px 10px;text-align:left;border-bottom:1px solid var(--border2);background:var(--bg3)}
 .standings-table th.num{text-align:right}
-.standings-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle}
-.standings-table td.num{text-align:right;font-family:'Space Mono',monospace;font-size:11px}
-.standings-table tr{cursor:pointer;transition:background .1s}
-.standings-table tr:hover td{background:var(--bg3)}
+.standings-table td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+.standings-table td.num{text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:var(--text2)}
+.standings-table tr{cursor:pointer;transition:background .12s}
+.standings-table tr:hover td{background:rgba(106,176,245,.07)}
 .standings-table tr.playoff td{color:var(--text)}
 .standings-table tr.bubble td{color:var(--yellow)}
-.standings-table .team-name{font-weight:600;color:var(--accent)}
-.standings-table .rank{font-family:'Space Mono',monospace;font-size:10px;color:var(--text3);min-width:24px}
-.standings-div{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--accent);padding:10px 8px 4px;border-bottom:1px solid var(--green-dim);margin-top:12px}
+.standings-table .team-name{font-weight:700;color:#dff4ea}
+.standings-table .rank{font-family:'Space Mono',monospace;font-size:10px;color:var(--text2);min-width:24px}
+.standings-div{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);padding:12px 8px 6px;border-bottom:1px solid var(--green-dim);margin-top:14px}
 .standings-div:first-child{margin-top:0}
 
 /* ── BRACKET ── */
@@ -236,6 +238,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .pick-card.t1{border-left:3px solid var(--green)}
 .pick-card.t2{border-left:3px solid var(--yellow)}
 .pick-game{font-size:14px;font-weight:600}
+.pick-refresh-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.pick-refresh-note{font-family:'Space Mono',monospace;font-size:10px;color:var(--text2)}
 
 /* ── CHAT SIDEBAR ── */
 .chat-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
@@ -470,6 +474,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 <!-- ═══════ PICKS ═══════ -->
 <div id="tab-picks" class="tab-hidden">
   <div class="alert alert-info">Picks are RECOMMENDATIONS only. Nothing placed until you confirm. Budget only updates on confirmed bets.</div>
+  <div class="pick-refresh-row">
+    <div class="pick-refresh-note" id="picksRefreshStatus">Auto cycle active. Morning picks will prefill automatically.</div>
+    <button class="btn" id="picksManualRefreshBtn" onclick="manualRefreshPicks()">↻ REFRESH PICKS</button>
+  </div>
   <div id="picksContainer"><div class="pick-card"><div style="color:var(--text3);font-size:12px">Use chat to generate picks — ask "run today's card".</div></div></div>
 </div>
 
@@ -2260,6 +2268,65 @@ init();
     return out;
   }
 
+  function getMorningTemplatePicks() {
+    const leagues = ['NHL', 'NBA', 'NCAA'];
+    const out = [];
+    for (let i = 0; i < leagues.length; i += 1) {
+      const lg = leagues[i];
+      out.push({
+        id: Date.now() + i,
+        game: lg + ' slate',
+        pick: 'Auto-prep: run card and verify lineups for best ' + lg + ' value',
+        odds: '—',
+        edge: '',
+        league: lg,
+        isAutoPlaceholder: true,
+        addedAt: Date.now() + i
+      });
+    }
+    return out;
+  }
+
+  function mostRecentNonEmptyPickDay() {
+    ensureDailyPicks();
+    const days = Object.keys(window.state[DAILY_KEY] || {}).sort().reverse();
+    for (let i = 0; i < days.length; i += 1) {
+      const day = days[i];
+      if (day === todayKey()) continue;
+      const arr = window.state[DAILY_KEY][day];
+      if (Array.isArray(arr) && arr.length) return arr;
+    }
+    return [];
+  }
+
+  function ensureMorningPicksReady() {
+    ensureDailyPicks();
+    const arr = window.state[DAILY_KEY][todayKey()] || [];
+    const hour = new Date().getHours();
+    const isNight = hour < 5;
+    if (arr.length) return;
+    if (isNight) return;
+    const carry = mostRecentNonEmptyPickDay()
+      .filter(function (p) { return !p.isAutoPlaceholder; })
+      .slice(0, 5)
+      .map(function (p, i) {
+        return {
+          id: Date.now() + i,
+          game: p.game || '',
+          pick: p.pick || '',
+          odds: p.odds || '',
+          edge: p.edge || '',
+          league: p.league || '',
+          addedAt: Date.now() + i
+        };
+      });
+    if (carry.length) {
+      persistDailyPicks(carry);
+    } else {
+      persistDailyPicks(getMorningTemplatePicks());
+    }
+  }
+
   function fp(p) {
     return [String(p.game || '').toUpperCase(), String(p.pick || '').toUpperCase(), String(p.odds || '').toUpperCase()].join('|');
   }
@@ -2367,6 +2434,26 @@ init();
       }
     });
   }
+
+  window.manualRefreshPicks = async function manualRefreshPicks() {
+    const status = document.getElementById('picksRefreshStatus');
+    const btn = document.getElementById('picksManualRefreshBtn');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Refreshing picks...';
+    try {
+      ensureMorningPicksReady();
+      maybeRunHourlyPickCycle(true);
+      if (typeof window.fetchAllScores === 'function') {
+        await window.fetchAllScores();
+      }
+      renderPicksTab();
+      if (status) status.textContent = 'Picks refreshed just now.';
+    } catch (e) {
+      if (status) status.textContent = 'Refresh failed. Try again.';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
 
   function openBetFormWithPrefill(p) {
     const setVal = function (id, v) {
@@ -2491,6 +2578,7 @@ init();
 
   function renderPicksTab() {
     ensureDailyPicks();
+    ensureMorningPicksReady();
     maybeRunHourlyPickCycle(false);
     const c = document.getElementById('picksContainer');
     if (!c) return;
@@ -2545,6 +2633,11 @@ init();
         } catch (e) {}
       });
     });
+    const status = document.getElementById('picksRefreshStatus');
+    if (status) {
+      const now = new Date();
+      status.textContent = 'Last refresh ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · hourly auto-cycle active';
+    }
   }
 
   function bootstrapPicksFromChatHistory() {
@@ -3165,6 +3258,7 @@ init();
 
   // init enhancements
   ensureDailyPicks();
+  ensureMorningPicksReady();
   setSelectedScoreDateKey(getSelectedScoreDateKey());
   installScoreDateNavigator();
   installDateAwareScoreFetch();
