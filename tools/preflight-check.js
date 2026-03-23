@@ -89,6 +89,14 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'installGameInteractivity()', 'game interactivity installer');
   mustContain(html, 'manualRefreshPicks', 'manual picks refresh function');
   mustContain(html, 'installSidebarToggle()', 'sidebar toggle installer');
+  mustContain(html, 'function buildAutoGamePicksFromScores(', 'auto game picks builder');
+  mustContain(html, 'function assignRecommendedStakes(', 'recommended stake allocator');
+  mustContain(html, 'function calcRecommendedStakeForPick(', 'kelly stake function');
+  mustContain(html, 'function budgetContext()', 'budget context helper');
+  mustContain(html, 'function hasBiasPressureLanguage(', 'anti-bias language filter');
+  mustContain(html, 'Objective model picks only (anti-bias filter active)', 'anti-bias picks banner');
+  mustContain(html, 'RECOMMENDED STAKE', 'pick detail stake section');
+  mustContain(html, 'Use in Bet Log', 'pick to bet-log CTA');
 
   // Critical system/log functions still present
   [
@@ -102,6 +110,17 @@ function checkCoreFeatures(html, dom) {
     'function renderScoresFull(',
     'function renderStandingsView(',
   ].forEach((sig) => mustContain(html, sig, `core function ${sig}`));
+
+  // New profitability guardrails and staking markers
+  [
+    'STAKE ',
+    '_recommendedStake',
+    '_recommendedStakePct',
+    '_signalQuality',
+    '_injuryPenalty',
+    'Bias-pressure language filter active',
+    'Anti-bias guardrail active',
+  ].forEach((needle) => mustContain(html, needle, `profitability marker ${needle}`));
 
   pass('core feature checks');
 }
