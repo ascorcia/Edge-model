@@ -104,6 +104,15 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'current game-time sync active', 'picks current time sync status');
   mustContain(html, 'edge_live_leader_v1', 'live sync leader key');
   mustContain(html, 'window.__edgeSidebarToggleInstalled', 'sidebar duplicate guard');
+  mustContain(html, 'function safeInlineText(', 'safe inline text helper');
+  mustContain(html, 'function teamLogoMapForPick(', 'pick team logo mapper');
+  mustContain(html, 'function teamLogoBadgeHtml(', 'pick team logo renderer');
+  mustContain(html, 'function parseParlayLegsFromText(', 'parlay legs parser');
+  mustContain(html, 'function potentialProfit(', 'payout estimator');
+  mustContain(html, 'data-pickgamedetail', 'pick game detail CTA');
+  mustContain(html, 'ACTUAL BET:', 'actual bet label in picks');
+  mustContain(html, 'PARLAY LEGS:', 'parlay legs label in picks');
+  mustContain(html, 'BUDGET AFTER:', 'budget after label in picks');
 
   // Critical system/log functions still present
   [

@@ -838,6 +838,7 @@ function loadState() {
 }
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 let state = loadState();
+window.state = state;
 let apiKey = localStorage.getItem('em_apikey_v4') || '';
 
 // ════════════════════════════════════════════════════════
@@ -899,6 +900,7 @@ const ESPN_ENDPOINTS = {
   ncaa: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
 };
 let espnScores = { nhl:[], nba:[], ncaa:[] };
+window.espnScores = espnScores;
 
 async function fetchLeague(url) {
   try { const r=await fetch(url,{signal:AbortSignal.timeout(6000)}); if(r.ok) return r.json(); } catch(e){}
@@ -953,6 +955,7 @@ async function fetchAllScores() {
   if(nhl.status==='fulfilled'){espnScores.nhl=indexESPNGames(nhl.value,'NHL');ok=true;}
   if(nba.status==='fulfilled'){espnScores.nba=indexESPNGames(nba.value,'NBA');ok=true;}
   if(ncaa.status==='fulfilled'){espnScores.ncaa=indexESPNGames(ncaa.value,'NCAA');ok=true;}
+  window.espnScores = espnScores;
   renderScores(); renderScoresFull();
   const t=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
   document.getElementById('lastUpdate').textContent=t;
@@ -1098,6 +1101,7 @@ function buildTeamRow(entry, idx, playoffLine, league, isWildcard=false) {
   const l=stats['losses']||stats['L']||'—';
   const otl=stats['otLosses']||stats['OTL']||'';
   const pct=stats['winPercent']||stats['PCT']||stats['pointsPercentage']||'—';
+  const pts=stats['points']||stats['PTS']||stats['pointTotal']||stats['wins']||'—';
   const gb=stats['gamesBehind']||stats['GB']||stats['pointsBack']||'—';
   const l10=stats['last10']||stats['L10']||'—';
   const streak=stats['streak']||stats['STK']||'—';
@@ -1115,12 +1119,13 @@ function buildTeamRow(entry, idx, playoffLine, league, isWildcard=false) {
   else if(bubble) badge='<span style="font-size:9px;color:var(--yellow);font-family:\'Space Mono\',monospace">BUBBLE</span>';
   else badge=`<span style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace">${gb} back</span>`;
 
-  const eJson=encodeURIComponent(JSON.stringify({team,abbr,teamId,w,l,otl,pct,gb,l10,streak,inPlayoff:inPO,bubble,eliminated,league,wins,losses,otLosses:otlN,gp}));
+  const eJson=encodeURIComponent(JSON.stringify({team,abbr,teamId,w,l,otl,pct,pts,gb,l10,streak,inPlayoff:inPO,bubble,eliminated,league,wins,losses,otLosses:otlN,gp}));
   return `<tr class="${rowClass}" onclick="openTeamModal('${eJson}')" style="cursor:pointer">
     <td class="rank">${idx+1}</td>
     <td>${logo?`<img src="${logo}" alt="${abbr}" style="width:14px;height:14px;border-radius:50%;object-fit:contain;margin-right:6px;vertical-align:-2px">`:''}<span class="team-name">${team}</span> <span style="color:var(--text3);font-size:10px">${abbr}</span></td>
-    <td class="num">${w}</td><td class="num">${l}</td>
+    <td class="num">${gp||'—'}</td><td class="num">${w}</td><td class="num">${l}</td>
     ${league==='nhl'?`<td class="num">${otl}</td>`:''}
+    <td class="num">${pts}</td>
     <td class="num">${typeof pct==='number'?pct.toFixed(3):pct}</td>
     <td class="num">${gb}</td>
     <td class="num">${l10}</td>
@@ -1132,8 +1137,9 @@ function buildTeamRow(entry, idx, playoffLine, league, isWildcard=false) {
 function tableHeader(league) {
   return `<thead><tr>
     <th>#</th><th>Team</th>
-    <th class="num">W</th><th class="num">L</th>
+    <th class="num">GP</th><th class="num">W</th><th class="num">L</th>
     ${league==='nhl'?'<th class="num">OTL</th>':''}
+    <th class="num">PTS</th>
     <th class="num">PCT</th><th class="num">GB</th>
     <th class="num">L10</th><th class="num">STK</th>
     <th class="num" style="color:var(--accent)">STATUS</th>
@@ -2230,6 +2236,10 @@ init();
   const PICK_CYCLE_TS_KEY = 'edge_pick_cycle_ts_v1';
 
   function getState() {
+    if (typeof state === 'object' && state) {
+      window.state = state;
+      return state;
+    }
     if (typeof window.state === 'object' && window.state) return window.state;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -2239,10 +2249,53 @@ init();
     }
   }
 
+  function ensureSharedStateRef() {
+    const base = (typeof state === 'object' && state) ? state : null;
+    const win = (typeof window.state === 'object' && window.state) ? window.state : null;
+    if (base && win && base !== win) {
+      // Prefer base/core state and only merge missing/empty structures from window state
+      // so log arrays are never accidentally wiped by a stale object reference.
+      const keys = ['bets', 'reviews', 'passes', 'failures', 'learnings', 'watchList', 'chatHistory'];
+      keys.forEach(function (k) {
+        const b = base[k];
+        const w = win[k];
+        if (!Array.isArray(b) && Array.isArray(w)) base[k] = w.slice();
+        else if (Array.isArray(b) && Array.isArray(w) && b.length === 0 && w.length > 0) base[k] = w.slice();
+      });
+      if ((!base.dailyPicks || typeof base.dailyPicks !== 'object') && win.dailyPicks && typeof win.dailyPicks === 'object') {
+        base.dailyPicks = win.dailyPicks;
+      }
+      if ((!base.teamStats || typeof base.teamStats !== 'object') && win.teamStats && typeof win.teamStats === 'object') {
+        base.teamStats = win.teamStats;
+      }
+      const scalarKeys = ['bankroll', 'floor', 'dailyPct', 'minBet'];
+      scalarKeys.forEach(function (k) {
+        if (typeof base[k] !== 'number' && typeof win[k] === 'number') base[k] = win[k];
+      });
+      window.state = base;
+      return base;
+    }
+    if (base) {
+      window.state = base;
+      return base;
+    }
+    if (win) return win;
+    const parsed = getState() || {};
+    window.state = parsed;
+    return parsed;
+  }
+
   function saveState() {
-    if (!window.state) return;
+    const s = ensureSharedStateRef();
+    if (!s) return;
+    if (typeof window.saveState === 'function') {
+      try {
+        window.saveState();
+        return;
+      } catch (e) {}
+    }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(window.state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     } catch (e) {}
   }
 
@@ -2292,7 +2345,7 @@ init();
   }
 
   function ensureDailyPicks() {
-    const s = getState() || {};
+    const s = ensureSharedStateRef() || {};
     if (!Array.isArray(s.bets)) s.bets = [];
     if (!Array.isArray(s.reviews)) s.reviews = [];
     if (!Array.isArray(s.passes)) s.passes = [];
@@ -2304,6 +2357,7 @@ init();
     if (!s[DAILY_KEY] || typeof s[DAILY_KEY] !== 'object') s[DAILY_KEY] = {};
     if (!Array.isArray(s[DAILY_KEY][todayKey()])) s[DAILY_KEY][todayKey()] = [];
     window.state = s;
+    return s;
   }
 
   function parsePercent(v) {
@@ -3019,6 +3073,118 @@ init();
     return clock ? ('SCHEDULED · ' + clock) : 'SCHEDULED';
   }
 
+  function leagueLogoUrl(league) {
+    const l = String(league || '').toUpperCase();
+    if (l === 'NHL') return 'https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png';
+    if (l === 'NBA') return 'https://a.espncdn.com/i/teamlogos/leagues/500/nba.png';
+    return 'https://a.espncdn.com/i/teamlogos/leagues/500/ncaab.png';
+  }
+
+  function leagueLogoHtml(league, size) {
+    const px = Number(size) || 14;
+    const url = leagueLogoUrl(league);
+    return '<img src="' + url + '" alt="' + String(league || 'LEAGUE') + '" style="width:' + px + 'px;height:' + px + 'px;object-fit:contain;vertical-align:-2px;border-radius:50%;margin-right:5px" onerror="this.style.display=\'none\'">';
+  }
+
+  function splitGameTokens(gameText) {
+    const m = String(gameText || '').toUpperCase().match(/(.+?)\s*(?:VS|@|V)\s*(.+)/);
+    if (!m) return ['TEAM A', 'TEAM B'];
+    return [m[1].trim(), m[2].trim()];
+  }
+
+  function expandActualBetText(p, gameCtx) {
+    const raw = String((p && p.pick) || '').trim();
+    if (!raw) return 'No pick detail';
+    const upper = raw.toUpperCase();
+    const away = String(gameCtx?.away || '').toUpperCase();
+    const home = String(gameCtx?.home || '').toUpperCase();
+    const awayFull = String(gameCtx?.awayFull || gameCtx?.away || away || 'Away');
+    const homeFull = String(gameCtx?.homeFull || gameCtx?.home || home || 'Home');
+    const toReadableLeg = function (leg) {
+      let out = String(leg || '').trim();
+      out = out.replace(/\bML\b/ig, 'Moneyline');
+      out = out.replace(/\bMONEYLINE\b/ig, 'Moneyline');
+      out = out.replace(/\bSPRD\b/ig, 'Spread');
+      out = out.replace(/\bTOT\b/ig, 'Total');
+      if (away) out = out.replace(new RegExp('\\b' + escapeRegExp(away) + '\\s+Moneyline\\b', 'i'), 'Moneyline on ' + awayFull);
+      if (home) out = out.replace(new RegExp('\\b' + escapeRegExp(home) + '\\s+Moneyline\\b', 'i'), 'Moneyline on ' + homeFull);
+      return out;
+    };
+    const isParlay = /\bPARLAY\b/i.test(upper) || /\s\+\s/.test(raw);
+    if (!isParlay) return toReadableLeg(raw);
+    const cleaned = raw.replace(/\bPARLAY\b[:\-\s]*/ig, '').trim();
+    const legs = cleaned.split(/\s+\+\s+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!legs.length) return 'Parlay: ' + toReadableLeg(raw);
+    return 'Parlay: ' + legs.map(toReadableLeg).join(' + ');
+  }
+
+  function pickLineText(p) {
+    const txt = String((p && p.pick) || '');
+    if (/\bPARLAY\b/i.test(txt) || /\s\+\s/.test(txt)) return 'Multi-leg parlay';
+    const m1 = txt.match(/\b(OVER|UNDER)\s+(\d+(?:\.\d+)?)\b/i);
+    if (m1) return m1[1].toUpperCase() + ' ' + m1[2];
+    const m2 = txt.match(/([+-]\d+(?:\.\d+)?)/);
+    if (m2) return 'Spread ' + m2[1];
+    return 'Moneyline';
+  }
+
+  function pickReasonText(p, ev, gameCtx) {
+    const notes = Array.isArray(p && p._modelNotes) ? p._modelNotes : [];
+    if (notes.length) return notes[0];
+    if (ev !== null) return 'Positive expected value (' + ev.toFixed(2) + '% EV).';
+    if (gameCtx && gameCtx.status === 'inprogress') return 'Live-game context detected; model applies conservative weighting.';
+    return 'Model blend: form, season phase, and risk controls.';
+  }
+
+  function safeInlineText(v) {
+    return String(v || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function teamLogoMapForPick(p) {
+    const map = {};
+    const gameCtx = findScoreContextForPick(p);
+    const teams = parseTeamsFromGame(p && p.game);
+    if (teams[0] && gameCtx && gameCtx.awayLogo) map[normToken(teams[0])] = String(gameCtx.awayLogo || '');
+    if (teams[1] && gameCtx && gameCtx.homeLogo) map[normToken(teams[1])] = String(gameCtx.homeLogo || '');
+    if (gameCtx && gameCtx.away && gameCtx.awayLogo) map[normToken(gameCtx.away)] = String(gameCtx.awayLogo || '');
+    if (gameCtx && gameCtx.home && gameCtx.homeLogo) map[normToken(gameCtx.home)] = String(gameCtx.homeLogo || '');
+    return map;
+  }
+
+  function teamLogoBadgeHtml(teamAbbr, url, size) {
+    const px = Number(size) || 14;
+    const t = safeInlineText(teamAbbr || 'TM');
+    if (!url) {
+      return '<span style="display:inline-flex;align-items:center;justify-content:center;width:' + px + 'px;height:' + px + 'px;border-radius:50%;background:var(--bg4);color:var(--text3);font-size:8px;font-family:\'Space Mono\',monospace;margin-right:4px">' + t + '</span>';
+    }
+    return '<img src="' + safeInlineText(url) + '" alt="' + t + '" style="width:' + px + 'px;height:' + px + 'px;object-fit:contain;border-radius:50%;margin-right:4px;vertical-align:-2px" onerror="this.style.display=\'none\'">';
+  }
+
+  function parseParlayLegsFromText(actualBetText) {
+    const txt = String(actualBetText || '');
+    const cleaned = txt.replace(/^Parlay:\s*/i, '').trim();
+    if (!cleaned) return [];
+    const legs = cleaned.split(/\s+\+\s+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    return legs.length > 1 ? legs : [];
+  }
+
+  function budgetAfterPick(bctx, recStake) {
+    return Math.max(0, Number(bctx && bctx.remaining || 0) - (Number(recStake) || 0));
+  }
+
+  function potentialProfit(stake, oddsText) {
+    const s = Number(stake);
+    const a = parseAmericanOdds(oddsText);
+    if (!Number.isFinite(s) || s <= 0 || !Number.isFinite(a) || a === 0) return null;
+    if (a > 0) return s * (a / 100);
+    return s * (100 / Math.abs(a));
+  }
+
   function openPickModal(p, conf, ev) {
     const old = document.getElementById('pickDetailModal');
     if (old) old.remove();
@@ -3026,10 +3192,16 @@ init();
     const teams = parseTeamsFromGame(p.game);
     const t1 = teams[0] ? teamStatSummary(teams[0]) : null;
     const t2 = teams[1] ? teamStatSummary(teams[1]) : null;
+    const actualBet = expandActualBetText(p, gameCtx);
+    const isParlay = /\bPARLAY\b/i.test(actualBet) || /\s\+\s/.test(actualBet);
+    const parlayLegs = parseParlayLegsFromText(actualBet);
+    const leagueBadge = leagueLogoHtml(p.league || 'NCAA', 14);
     const recStake = Number(p && p._recommendedStake) || 0;
     const recPct = Number(p && p._recommendedStakePct) || 0;
     const bctx = budgetContext();
     const why = [];
+    const lineText = pickLineText(p);
+    const budgetAfter = budgetAfterPick(bctx, recStake);
     const edge = parsePercent(p.edge);
     if (edge !== null) {
       if (edge >= 10) why.push('High model edge (' + edge.toFixed(1) + '%).');
@@ -3054,15 +3226,18 @@ init();
       '<div class="modal-box">' +
       '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
       '<div><div style="font-size:18px;font-weight:700;color:#fff">Pick Detail</div>' +
-      '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3);margin-top:4px">' + (p.league || '—') + ' · ' + conf + '</div></div>' +
+      '<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3);margin-top:4px">' + leagueBadge + safeInlineText(p.league || '—') + ' · ' + safeInlineText(conf) + '</div></div>' +
       '<button class="btn" onclick="document.getElementById(\'pickDetailModal\').remove()">CLOSE</button></div>' +
       '<div style="padding:18px 20px">' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
       '<div class="roi-cell"><div class="roi-label">GAME</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.game || '—') + '</div></div>' +
-      '<div class="roi-cell"><div class="roi-label">WHAT TO BET</div><div class="roi-value" style="font-size:12px;color:var(--green)">' + (p.pick || '—') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">ACTUAL BET</div><div class="roi-value" style="font-size:12px;color:var(--green)">' + safeInlineText(actualBet) + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">LINE OF PICK</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + lineText + '</div></div>' +
       '<div class="roi-cell"><div class="roi-label">LINE / ODDS</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.odds || '—') + '</div></div>' +
+      (isParlay ? '<div class="roi-cell"><div class="roi-label">PARLAY LEGS</div><div class="roi-value" style="font-size:11px;color:var(--text2);line-height:1.5">' + (parlayLegs.length ? parlayLegs.map(function (l, i) { return (i + 1) + ') ' + safeInlineText(l); }).join('<br>') : safeInlineText(actualBet)) + '</div></div>' : '') +
       '<div class="roi-cell"><div class="roi-label">EDGE / EV</div><div class="roi-value" style="font-size:12px;color:var(--text)">' + (p.edge || '—') + ' / ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</div></div>' +
       '<div class="roi-cell"><div class="roi-label">RECOMMENDED STAKE</div><div class="roi-value" style="font-size:12px;color:var(--yellow)">' + (recStake > 0 ? ('$' + recStake + ' (' + recPct.toFixed(1) + '% BR)') : 'No stake (budget/edge capped)') + '</div></div>' +
+      '<div class="roi-cell"><div class="roi-label">BUDGET AFTER PICK</div><div class="roi-value" style="font-size:11px;color:var(--text2)">$' + budgetAfter.toFixed(0) + ' remaining after this risk</div></div>' +
       '<div class="roi-cell"><div class="roi-label">BUDGET CONTEXT</div><div class="roi-value" style="font-size:11px;color:var(--text2)">$' + bctx.remaining.toFixed(0) + ' remaining / $' + bctx.budget.toFixed(0) + ' daily</div></div>' +
       '</div>' +
       '<div style="margin-bottom:14px"><div style="font-family:\'Space Mono\',monospace;font-size:10px;letter-spacing:1px;color:var(--accent);margin-bottom:6px">WHY THE MODEL LIKES IT</div>' +
@@ -3072,9 +3247,16 @@ init();
       '<div class="roi-cell"><div class="roi-label">' + (t1 ? t1.team : (teams[0] || 'TEAM A')) + '</div><div class="roi-value" style="font-size:11px;color:var(--text)">' + (t1 ? ('REC ' + t1.record + ' · PF ' + (t1.ppgFor ? t1.ppgFor.toFixed(1) : '—') + ' · PA ' + (t1.ppgAgainst ? t1.ppgAgainst.toFixed(1) : '—')) : 'No confirmed data yet') + '</div></div>' +
       '<div class="roi-cell"><div class="roi-label">' + (t2 ? t2.team : (teams[1] || 'TEAM B')) + '</div><div class="roi-value" style="font-size:11px;color:var(--text)">' + (t2 ? ('REC ' + t2.record + ' · PF ' + (t2.ppgFor ? t2.ppgFor.toFixed(1) : '—') + ' · PA ' + (t2.ppgAgainst ? t2.ppgAgainst.toFixed(1) : '—')) : 'No confirmed data yet') + '</div></div>' +
       '</div></div>' +
-      '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn green" id="pickModalUseBet">USE IN BET LOG</button></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="pickModalGameDetail">GAME DETAIL</button><button class="btn green" id="pickModalUseBet">USE IN BET LOG</button></div>' +
       '</div></div>';
     document.body.appendChild(overlay);
+    const gdBtn = document.getElementById('pickModalGameDetail');
+    if (gdBtn) {
+      gdBtn.onclick = function () {
+        const id = String(p && p.sourceEventId || '');
+        if (id && typeof window.openGameById === 'function') window.openGameById(id);
+      };
+    }
     const useBtn = document.getElementById('pickModalUseBet');
     if (useBtn) {
       useBtn.onclick = function () {
@@ -3120,8 +3302,23 @@ init();
       Object.keys(grouped).map(function (gk) {
         const grp = grouped[gk];
         const headerClock = gameTimeBadge(grp.items[0] || {});
+        const first = grp.items[0] || {};
+        const logos = teamLogoMapForPick(first);
+        const teams = parseTeamsFromGame(grp.game || '');
+        const awayToken = normToken(teams[0] || '');
+        const homeToken = normToken(teams[1] || '');
+        const awayLogo = logos[awayToken] || '';
+        const homeLogo = logos[homeToken] || '';
+        const league = String(first.league || '—');
         return '<div class="pick-card" data-pick-game-group="' + encodeURIComponent(gk) + '" style="margin-bottom:10px">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div class="pick-game">' + (grp.game || '—') + '</div><div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' + headerClock + '</div></div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">' +
+          '<div class="pick-game" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          leagueLogoHtml(league, 16) +
+          (awayToken ? teamLogoBadgeHtml(awayToken, awayLogo, 14) : '') +
+          '<span>' + safeInlineText(grp.game || '—') + '</span>' +
+          (homeToken ? teamLogoBadgeHtml(homeToken, homeLogo, 14) : '') +
+          '<span style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' + safeInlineText(league) + '</span>' +
+          '</div><div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--text3)">' + headerClock + '</div></div>' +
           grp.items.map(function (p) {
             const edge = parsePercent(p && p.edge);
             const ev = evPct(p.edge, p.odds);
@@ -3133,19 +3330,39 @@ init();
             const recPct = Number(p && p._recommendedStakePct) || 0;
             const payload = encodeURIComponent(JSON.stringify(p));
             const rowClass = ((edge || 0) >= 10 ? 't1' : 't2');
+            const gameCtx = findScoreContextForPick(p);
+            const actualBet = expandActualBetText(p, gameCtx);
+            const lineTxt = pickLineText(p);
+            const why = pickReasonText(p, ev, gameCtx);
+            const budgetAfter = budgetAfterPick(bctx, recStake);
+            const legs = parseParlayLegsFromText(actualBet);
+            const lineOdds = String(p.odds || '—');
+            const payout = recStake > 0 ? potentialProfit(recStake, lineOdds) : null;
+            const payoutText = payout !== null ? ('$' + payout.toFixed(2)) : '—';
+            const riskText = recStake > 0 ? ('$' + recStake.toFixed(0) + ' (' + recPct.toFixed(1) + '% BR)') : '—';
+            const gameDetailHint = String((p && p._gameStatus) || '').toLowerCase() === 'inprogress'
+              ? ('LIVE ' + String(p && p._gameClock || ''))
+              : gameTimeBadge(p);
             return '<div class="pick-card ' + rowClass + '" data-pickdetail="' + payload + '" style="cursor:pointer;margin-bottom:6px">' +
-              '<div style="font-size:12px;color:var(--text2);margin:0 0 8px">' + (p.pick || '') + '</div>' +
+              '<div style="font-size:12px;color:var(--green);margin:0 0 6px"><strong>ACTUAL BET:</strong> ' + safeInlineText(actualBet) + '</div>' +
+              '<div style="font-size:11px;color:var(--text2);margin:0 0 6px"><strong>LINE:</strong> ' + safeInlineText(lineTxt) + ' · <strong>ODDS:</strong> ' + safeInlineText(lineOdds) + '</div>' +
+              '<div style="font-size:11px;color:var(--text2);margin:0 0 6px"><strong>RISK:</strong> ' + safeInlineText(riskText) + ' · <strong>BUDGET AFTER:</strong> $' + budgetAfter.toFixed(0) + '</div>' +
+              '<div style="font-size:11px;color:var(--text2);margin:0 0 6px"><strong>WHY MODEL LIKES IT:</strong> ' + safeInlineText(why) + '</div>' +
+              '<div style="font-size:11px;color:var(--text3);margin:0 0 8px"><strong>GAME DETAIL:</strong> ' + safeInlineText(gameDetailHint) + '</div>' +
+              (legs.length ? ('<div style="font-size:11px;color:var(--yellow);margin:0 0 8px"><strong>PARLAY LEGS:</strong> ' + legs.map(function (x) { return safeInlineText(x); }).join(' + ') + ' · <strong>PAYOUT PROFIT:</strong> ' + payoutText + '</div>') : '') +
               '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + (p.league || '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + leagueLogoHtml(p.league, 12) + safeInlineText(p.league || '—') + '</span>' +
               '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">' + gameTimeBadge(p) + '</span>' +
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text2)">Odds ' + (p.odds || '—') + '</span>' +
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + (p.edge || '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);padding:2px 6px;border-radius:2px;color:var(--green)">Edge ' + safeInlineText(p.edge || '—') + '</span>' +
               '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + ((ev !== null && ev > 0) ? 'var(--green)' : 'var(--yellow)') + '">EV ' + (ev !== null ? ev.toFixed(2) + '%' : '—') + '</span>' +
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + conf + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:' + col + '">' + safeInlineText(conf) + '</span>' +
               '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--text3)">RANK ' + (Number.isFinite(rank) ? rank.toFixed(1) : '—') + '</span>' +
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--yellow)">STAKE ' + (recStake > 0 ? ('$' + recStake + ' (' + recPct.toFixed(1) + '%)') : '—') + '</span>' +
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--bg4);padding:2px 6px;border-radius:2px;color:var(--yellow)">STAKE ' + safeInlineText(riskText) + '</span>' +
               '</div>' +
+              '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+              '<button class="btn" data-pickgamedetail="' + payload + '" style="font-size:9px">Game Detail</button>' +
               '<button class="btn" data-pickfill="' + payload + '" style="font-size:9px;border-color:var(--green);color:var(--green)">Use in Bet Log' + (recStake > 0 ? (' · $' + recStake) : '') + '</button>' +
+              '</div>' +
               '</div>';
           }).join('') +
           '</div>';
@@ -3165,6 +3382,16 @@ init();
         if (e && e.stopPropagation) e.stopPropagation();
         try {
           openBetFormWithPrefill(JSON.parse(decodeURIComponent(btn.getAttribute('data-pickfill') || '{}')));
+        } catch (e) {}
+      });
+    });
+    c.querySelectorAll('[data-pickgamedetail]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        try {
+          const p = JSON.parse(decodeURIComponent(btn.getAttribute('data-pickgamedetail') || '{}'));
+          const id = String(p && p.sourceEventId || '');
+          if (id && typeof window.openGameById === 'function') window.openGameById(id);
         } catch (e) {}
       });
     });
