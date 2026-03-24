@@ -3157,6 +3157,155 @@ init();
     return Number(score.toFixed(3));
   }
 
+  function hasActionablePickMarket(text) {
+    return /(OVER|UNDER|ML|MONEYLINE|SPREAD|TOTAL|ALT|PARLAY|TEAM TOTAL)/i.test(String(text || ''));
+  }
+
+  function pickStateLabelFromStatus(status, clock, period) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'inprogress') return 'LIVE' + (clock ? (' · ' + clock + (period ? (' · ' + period) : '')) : '');
+    if (s === 'closed') return 'FINAL';
+    if (s === 'scheduled') return clock ? ('SCHEDULED · ' + clock) : 'SCHEDULED';
+    return 'SYNCING';
+  }
+
+  function evaluatePickDecision(p, ctx) {
+    const out = {
+      bettable: false,
+      code: 'unknown',
+      reason: 'Decision pending sync.',
+      stateLabel: 'SYNCING',
+      ev: null,
+      confidence: 'REVIEW'
+    };
+    if (!p || typeof p !== 'object' || isPlaceholderPick(p)) {
+      out.code = 'placeholder';
+      out.reason = 'Placeholder/system prep entry.';
+      return out;
+    }
+
+    syncPickGameContext(p);
+    const gameCtx = findScoreContextForPick(p);
+    if (gameCtx && gameCtx.eventId && !p.sourceEventId) p.sourceEventId = gameCtx.eventId;
+    if (gameCtx && gameCtx.status) p._gameStatus = gameCtx.status;
+    if (gameCtx && gameCtx.clock) p._gameClock = gameCtx.clock;
+    if (gameCtx && gameCtx.period) p._gamePeriod = gameCtx.period;
+    if (gameCtx && Number(gameCtx.startTs)) p._gameStartTs = Number(gameCtx.startTs);
+
+    const status = String((gameCtx && gameCtx.status) || p._gameStatus || '').toLowerCase();
+    out.stateLabel = pickStateLabelFromStatus(status, String((gameCtx && gameCtx.clock) || p._gameClock || ''), String((gameCtx && gameCtx.period) || p._gamePeriod || ''));
+
+    if (!p.sourceEventId) {
+      out.code = 'missing_game_map';
+      out.reason = 'No verified live scoreboard mapping for this pick.';
+      return out;
+    }
+    if (!hasActionablePickMarket(p.pick)) {
+      out.code = 'non_actionable_pick';
+      out.reason = 'Pick text is not a bettable market type.';
+      return out;
+    }
+    if (status === 'closed') {
+      out.code = 'game_closed';
+      out.reason = 'Game already final/closed.';
+      return out;
+    }
+    if (hasBiasPressureLanguage(String(p.pick || '') + ' ' + String(p.game || ''))) {
+      out.code = 'bias_guardrail';
+      out.reason = 'Blocked by anti-bias language guardrail.';
+      return out;
+    }
+
+    const edge = parsePercent(p.edge);
+    const ev = evPct(p.edge, p.odds);
+    out.ev = ev;
+    const confMeta = pickConfidenceMeta(p);
+    out.confidence = confMeta.label;
+    if (edge === null || ev === null || ev <= 0) {
+      out.code = 'negative_or_missing_ev';
+      out.reason = 'No positive expected value after pricing.';
+      return out;
+    }
+    if (confMeta.tier < 2) {
+      out.code = 'confidence_gate';
+      out.reason = 'Confidence tier did not clear bet threshold.';
+      return out;
+    }
+
+    const minBet = Math.max(1, Number((ctx && ctx.minBet) || (window.state && window.state.minBet) || 10));
+    const recStake = Number(p._recommendedStake) || 0;
+    if (recStake < minBet) {
+      out.code = ((ctx && Number(ctx.remaining) || 0) < minBet) ? 'budget_exhausted' : 'stake_below_min';
+      out.reason = out.code === 'budget_exhausted'
+        ? 'Daily risk budget is currently exhausted.'
+        : 'Stake model size did not clear minimum bet.';
+      return out;
+    }
+
+    out.bettable = true;
+    out.code = 'bettable';
+    out.reason = 'Clears EV, confidence, game-state, and bankroll gates.';
+    return out;
+  }
+
+  function trimDecisionSeenMap(mapObj, maxKeys) {
+    const map = mapObj || {};
+    const keys = Object.keys(map);
+    const max = Number(maxKeys) || 1200;
+    if (keys.length <= max) return map;
+    keys.sort(function (a, b) { return Number(map[a] || 0) - Number(map[b] || 0); });
+    const removeCount = keys.length - max;
+    for (let i = 0; i < removeCount; i += 1) delete map[keys[i]];
+    return map;
+  }
+
+  function logEngineNoBetDecisions(list, ctx) {
+    if (!Array.isArray(list) || !list.length) return 0;
+    ensureDailyPicks();
+    if (!Array.isArray(window.state.passes)) window.state.passes = [];
+    if (!Array.isArray(window.state.learnings)) window.state.learnings = [];
+    if (!window.state.engineDecisionSeen || typeof window.state.engineDecisionSeen !== 'object') window.state.engineDecisionSeen = {};
+    const seen = trimDecisionSeenMap(window.state.engineDecisionSeen, 1200);
+    const day = todayKey();
+    const dateLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    let added = 0;
+
+    for (let i = 0; i < list.length; i += 1) {
+      const p = list[i];
+      if (!p || isPlaceholderPick(p)) continue;
+      const gate = evaluatePickDecision(p, ctx);
+      p._decisionCode = gate.code;
+      p._decisionReason = gate.reason;
+      p._decisionState = gate.stateLabel;
+      if (gate.bettable) continue;
+      if (gate.code === 'missing_game_map' && Number(p._recommendedStake || 0) > 0) continue;
+
+      const key = day + '|' + (p.sourceEventId || fp(p)) + '|' + gate.code;
+      if (seen[key]) continue;
+      seen[key] = Date.now();
+
+      window.state.passes.push({
+        id: Date.now() + i + added,
+        date: dateLabel,
+        game: p.game || 'Unknown matchup',
+        decision: 'pass',
+        reason: 'AUTO NO-BET · ' + gate.reason
+      });
+      window.state.learnings.push({
+        id: Date.now() + i + 500000 + added,
+        date: dateLabel,
+        pattern: 'No-bet gate: ' + gate.code,
+        data: (p.game || '—') + ' | ' + (p.pick || '—') + ' | ' + (p.edge || '—') + ' | ' + (p.odds || '—'),
+        app: gate.reason,
+        conf: 'provisional'
+      });
+      added += 1;
+      if (added >= 8) break;
+    }
+    window.state.engineDecisionSeen = seen;
+    return added;
+  }
+
   function budgetContext() {
     ensureDailyPicks();
     const bankroll = Number(window.state && window.state.bankroll) || 0;
@@ -3211,6 +3360,32 @@ init();
       remaining = Math.max(0, remaining - rec);
       seen += 1;
     }
+    const hasStake = actionable.some(function (p) { return Number(p && p._recommendedStake) >= ctx.minBet; });
+    if (!hasStake && remaining >= ctx.minBet) {
+      const fallback = actionable
+        .map(function (p) {
+          const meta = pickConfidenceMeta(p);
+          const ev = evPct(p && p.edge, p && p.odds);
+          syncPickGameContext(p);
+          const st = String(p && p._gameStatus || '').toLowerCase();
+          return { p: p, tier: meta.tier, ev: ev, rank: Number(p && p._autoRank) || -9999, status: st };
+        })
+        .filter(function (x) {
+          return x.tier >= 2 && Number.isFinite(x.ev) && x.ev > 0 && x.status !== 'closed';
+        })
+        .sort(function (a, b) {
+          if (b.tier !== a.tier) return b.tier - a.tier;
+          if (b.rank !== a.rank) return b.rank - a.rank;
+          return b.ev - a.ev;
+        });
+      if (fallback.length) {
+        const target = fallback[0].p;
+        target._recommendedStake = Math.max(ctx.minBet, Math.min(remaining, ctx.minBet));
+        target._recommendedStakePct = (ctx.bankroll > 0 && target._recommendedStake > 0)
+          ? (target._recommendedStake / ctx.bankroll * 100)
+          : 0;
+      }
+    }
   }
 
   function cycleAndSortPicks() {
@@ -3231,6 +3406,7 @@ init();
       return (Number(b.addedAt) || 0) - (Number(a.addedAt) || 0);
     });
     assignRecommendedStakes(list);
+    logEngineNoBetDecisions(list, budgetContext());
     saveState();
     return true;
   }
@@ -3304,9 +3480,10 @@ init();
     const seededFromScores = seedPicksFromLiveScores(false);
     const seededMorning = ensureMorningPicksReady();
     const sorted = maybeRunHourlyPickCycle(true);
+    const decisionLog = logEngineNoBetDecisions((window.state && window.state[DAILY_KEY] && window.state[DAILY_KEY][todayKey()]) || [], budgetContext());
     rt.lastCycleTs = Date.now();
     rt.cycleCount = (Number(rt.cycleCount) || 0) + 1;
-    rt.lastSummary = [trigger || 'auto', seededFromScores ? 'seeded' : 'no-seed', seededMorning ? 'morning-seed' : 'no-morning-seed', sorted ? 'sorted' : 'no-sort'].join(' · ');
+    rt.lastSummary = [trigger || 'auto', seededFromScores ? 'seeded' : 'no-seed', seededMorning ? 'morning-seed' : 'no-morning-seed', sorted ? 'sorted' : 'no-sort', decisionLog ? 'decision-log' : 'no-decision-log'].join(' · ');
     updateEngineLearningTelemetry();
     window.engineRuntime = rt;
     saveEngineRuntime(rt);
@@ -3702,7 +3879,14 @@ init();
     if (!c) return;
     const picksRaw = window.state[DAILY_KEY][todayKey()] || [];
     const actionable = picksRaw.filter(function (p) { return !isPlaceholderPick(p); });
-    const picks = actionable.length ? actionable : picksRaw;
+    const bctx = budgetContext();
+    const picks = actionable.filter(function (p) {
+      const gate = evaluatePickDecision(p, bctx);
+      p._decisionCode = gate.code;
+      p._decisionReason = gate.reason;
+      p._decisionState = gate.stateLabel;
+      return gate.bettable;
+    });
     if (!picks.length) {
       const liveGames = getAllScoreGames().filter(function (g) { return g && g.status === 'inprogress'; }).length;
       const scheduledGames = getAllScoreGames().filter(function (g) { return g && g.status === 'scheduled'; }).length;
@@ -3720,7 +3904,6 @@ init();
         '</div>';
       return;
     }
-    const bctx = budgetContext();
     const synced = picks.map(function (p) { return syncPickGameContext(p); });
     synced.sort(function (a, b) {
       const ws = { inprogress: 0, scheduled: 1, closed: 2 };
