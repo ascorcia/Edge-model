@@ -104,6 +104,15 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'current game-time sync active', 'picks current time sync status');
   mustContain(html, 'edge_live_leader_v1', 'live sync leader key');
   mustContain(html, 'window.__edgeSidebarToggleInstalled', 'sidebar duplicate guard');
+  mustContain(html, 'No live games right now.', 'dashboard live-only empty state');
+  mustContain(html, "live?'LIVE · ':''", 'dashboard live clock prefix');
+  mustContain(html, "live?'● LIVE':done?'FINAL':'SCHEDULED'", 'scores tab live/final/scheduled badge');
+  mustContain(html, "TODAY\\'S PICKS", 'no-picks title block');
+  mustContain(html, 'Model has no picks for today.', 'no-picks explicit reason header');
+  mustContain(html, 'function restoreLogsIfEmpty()', 'core log recovery helper');
+  mustContain(html, 'function hydrateCoreStateRefs()', 'enhancement state hydration helper');
+  mustContain(html, 'function refreshAllLogViews()', 'log rerender helper');
+  mustContain(html, 'refreshAllLogViews();', 'log rerender init call');
   mustContain(html, 'function safeInlineText(', 'safe inline text helper');
   mustContain(html, 'function teamLogoMapForPick(', 'pick team logo mapper');
   mustContain(html, 'function teamLogoBadgeHtml(', 'pick team logo renderer');

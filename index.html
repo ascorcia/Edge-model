@@ -786,6 +786,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 // STATE
 // ════════════════════════════════════════════════════════
 const STORAGE_KEY = 'edge_model_v4';
+const STORAGE_BACKUP_KEY = 'edge_model_v4_last_good';
 
 function getDefaultState() {
   return {
@@ -831,14 +832,69 @@ function getDefaultState() {
 
 function loadState() {
   try {
+    const defaults = getDefaultState();
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return Object.assign({}, getDefaultState(), JSON.parse(raw));
-    return getDefaultState();
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    const merged = Object.assign({}, defaults, (parsed && typeof parsed === 'object') ? parsed : {});
+    const logKeys = ['bets', 'reviews', 'passes', 'failures', 'learnings'];
+    const hasAnyLogData = logKeys.some(k => Array.isArray(merged[k]) && merged[k].length > 0);
+    if (!hasAnyLogData) {
+      try {
+        const backupRaw = localStorage.getItem(STORAGE_BACKUP_KEY);
+        if (backupRaw) {
+          const backup = JSON.parse(backupRaw);
+          const backupHasLogs = logKeys.some(k => Array.isArray(backup && backup[k]) && backup[k].length > 0);
+          if (backupHasLogs) {
+            logKeys.forEach(k => { merged[k] = Array.isArray(backup[k]) ? backup[k] : []; });
+          } else {
+            logKeys.forEach(k => { merged[k] = Array.isArray(defaults[k]) ? defaults[k] : []; });
+          }
+        } else {
+          logKeys.forEach(k => { merged[k] = Array.isArray(defaults[k]) ? defaults[k] : []; });
+        }
+      } catch (e) {
+        logKeys.forEach(k => { merged[k] = Array.isArray(defaults[k]) ? defaults[k] : []; });
+      }
+    }
+    return merged;
   } catch(e) { return getDefaultState(); }
 }
-function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function saveState() {
+  try {
+    const prev = localStorage.getItem(STORAGE_KEY);
+    if (prev) localStorage.setItem(STORAGE_BACKUP_KEY, prev);
+  } catch (e) {}
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 let state = loadState();
 window.state = state;
+
+function restoreLogsIfEmpty() {
+  const logKeys = ['bets', 'reviews', 'passes', 'failures', 'learnings'];
+  const allEmpty = logKeys.every(k => Array.isArray(state[k]) && state[k].length === 0);
+  if (!allEmpty) return false;
+  let restored = false;
+  try {
+    const backupRaw = localStorage.getItem(STORAGE_BACKUP_KEY);
+    if (backupRaw) {
+      const backup = JSON.parse(backupRaw);
+      const backupHasLogs = logKeys.some(k => Array.isArray(backup && backup[k]) && backup[k].length > 0);
+      if (backupHasLogs) {
+        logKeys.forEach(k => { state[k] = Array.isArray(backup[k]) ? backup[k] : []; });
+        restored = true;
+      }
+    }
+  } catch (e) {}
+  if (!restored) {
+    const defaults = getDefaultState();
+    logKeys.forEach(k => { state[k] = Array.isArray(defaults[k]) ? defaults[k].slice() : []; });
+    restored = true;
+  }
+  if (restored) saveState();
+  return restored;
+}
+restoreLogsIfEmpty();
 let apiKey = localStorage.getItem('em_apikey_v4') || '';
 
 // ════════════════════════════════════════════════════════
@@ -968,8 +1024,13 @@ function renderScores() {
   const betAbbrs=state.bets.flatMap(b=>(b.game||'').toUpperCase().replace(/[^A-Z /]/g,'').split(/[\s\/]+/)).filter(Boolean);
   const all=[...espnScores.nhl,...espnScores.nba,...espnScores.ncaa].sort((a,b)=>({inprogress:0,scheduled:1,closed:2}[a.status]||2)-({inprogress:0,scheduled:1,closed:2}[b.status]||2));
   if(!all.length){container.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:10px;grid-column:1/-1">Loading...</div>';return;}
+  const liveOnly = all.filter(function (g) { return g && g.status === 'inprogress'; });
+  if(!liveOnly.length){
+    container.innerHTML='<div style="color:var(--text3);font-family:\'Space Mono\',monospace;font-size:11px;grid-column:1/-1;line-height:1.5">No live games right now.<br><span style="font-size:10px">This panel auto-moves games here at first whistle/tip and removes them when final.</span></div>';
+    return;
+  }
   const hasBet=g=>betAbbrs.includes((g.away||'').toUpperCase())||betAbbrs.includes((g.home||'').toUpperCase());
-  container.innerHTML=all.map(g=>{
+  container.innerHTML=liveOnly.map(g=>{
     const live=g.status==='inprogress';const done=g.status==='closed';
     const sa=g.scoreAway??'',sh=g.scoreHome??'';
     const wa=done&&g.scoreAway>g.scoreHome,wh=done&&g.scoreHome>g.scoreAway;
@@ -979,7 +1040,7 @@ function renderScores() {
       <div class="score-league">${g.league} ${live?'<span style="color:var(--orange)">● LIVE</span>':''}</div>
       <div class="score-teams"><span class="score-team" style="${wa?'color:#fff':''}">${al}${g.away}</span><span class="score-num" style="${wa?'color:var(--green)':''}">${sa}</span></div>
       <div class="score-teams"><span class="score-team" style="${wh?'color:#fff':''}">${hl}${g.home}</span><span class="score-num" style="${wh?'color:var(--green)':''}">${sh}</span></div>
-      <div class="score-time ${live?'live':''}">${g.clock}${g.period?' · '+g.period:''}</div>
+      <div class="score-time ${live?'live':''}">${live?'LIVE · ':''}${g.clock}${g.period?' · '+g.period:''}</div>
     </div>`;
   }).join('');
 }
@@ -1001,7 +1062,7 @@ function renderScoresFull() {
           <div class="sb-team-row"><span class="sb-team-name ${wa?'winner':''}">${al}${g.away}</span><span class="sb-score ${wa?'winner':''}">${g.scoreAway??''}</span></div>
           <div class="sb-team-row"><span class="sb-team-name ${wh?'winner':''}">${hl}${g.home}</span><span class="sb-score ${wh?'winner':''}">${g.scoreHome??''}</span></div>
         </div>
-        <div class="sb-meta"><div class="sb-clock ${live?'live':''}">${live?'● ':''} ${g.clock}</div>${g.period?`<div class="sb-period">${g.period}</div>`:''}</div>
+        <div class="sb-meta"><div class="sb-clock ${live?'live':''}">${live?'● LIVE':done?'FINAL':'SCHEDULED'}${g.clock?` · ${g.clock}`:''}</div>${g.period?`<div class="sb-period">${g.period}</div>`:''}</div>
       </div>`;
     }).join('');
   }
@@ -2285,6 +2346,56 @@ init();
     return parsed;
   }
 
+  function hydrateCoreStateRefs() {
+    try {
+      if (typeof state === 'object' && state) window.state = state;
+    } catch (e) {}
+    const s = ensureSharedStateRef();
+    if (!s || typeof s !== 'object') return s;
+    try {
+      if (typeof state === 'object' && state && state !== s) {
+        Object.keys(state).forEach(function (k) { delete state[k]; });
+        Object.assign(state, s);
+        window.state = state;
+      }
+    } catch (e) {}
+    const defaults = (typeof getDefaultState === 'function') ? getDefaultState() : {};
+    const logKeys = ['bets', 'reviews', 'passes', 'failures', 'learnings'];
+    const hasAnyLogData = logKeys.some(function (k) { return Array.isArray(s[k]) && s[k].length > 0; });
+    if (!hasAnyLogData) {
+      let restored = false;
+      try {
+        const backupRaw = localStorage.getItem('edge_model_v4_last_good');
+        if (backupRaw) {
+          const backup = JSON.parse(backupRaw);
+          if (backup && typeof backup === 'object') {
+            const backupHasAny = logKeys.some(function (k) { return Array.isArray(backup[k]) && backup[k].length > 0; });
+            if (backupHasAny) {
+              logKeys.forEach(function (k) {
+                if (Array.isArray(backup[k])) s[k] = backup[k].slice();
+              });
+              restored = true;
+            }
+          }
+        }
+      } catch (e) {}
+      if (!restored) {
+        logKeys.forEach(function (k) {
+          if (Array.isArray(defaults[k])) s[k] = defaults[k].slice();
+        });
+      }
+      try {
+        if (typeof state === 'object' && state && state !== s) {
+          Object.keys(state).forEach(function (k) { delete state[k]; });
+          Object.assign(state, s);
+          window.state = state;
+        }
+      } catch (e) {}
+      saveState();
+    }
+    return s;
+  }
+
   function saveState() {
     const s = ensureSharedStateRef();
     if (!s) return;
@@ -3278,7 +3389,20 @@ init();
     const actionable = picksRaw.filter(function (p) { return !isPlaceholderPick(p); });
     const picks = actionable.length ? actionable : picksRaw;
     if (!picks.length) {
-      c.innerHTML = '<div class="pick-card"><div style="color:var(--text3);font-size:12px">No parsed picks yet. Run card in chat and picks will auto-appear here.</div></div>';
+      const liveGames = getAllScoreGames().filter(function (g) { return g && g.status === 'inprogress'; }).length;
+      const scheduledGames = getAllScoreGames().filter(function (g) { return g && g.status === 'scheduled'; }).length;
+      const reasons = [];
+      if (liveGames > 0) reasons.push('Live games are currently in progress; model is waiting for cleaner in-game edges.');
+      if (scheduledGames === 0) reasons.push('No scheduled games were found for the selected operational day.');
+      reasons.push('No bets cleared minimum edge + EV + anti-bias + bankroll constraints.');
+      c.innerHTML =
+        '<div class="pick-card" style="padding:16px 14px">' +
+        '<div style="font-size:20px;line-height:1.2;color:#fff;font-weight:700;letter-spacing:.4px;margin-bottom:10px">TODAY\'S PICKS</div>' +
+        '<div style="font-size:12px;color:var(--yellow);margin-bottom:8px">Model has no picks for today.</div>' +
+        '<div style="font-size:11px;color:var(--text2);line-height:1.6">' +
+        reasons.map(function (r) { return '• ' + safeInlineText(r); }).join('<br>') +
+        '</div>' +
+        '</div>';
       return;
     }
     const bctx = budgetContext();
@@ -3950,6 +4074,15 @@ init();
     syncBracketTabLabel();
   }
 
+  function refreshAllLogViews() {
+    try { if (typeof window.renderBetLog === 'function') window.renderBetLog(); } catch (e) {}
+    try { if (typeof window.renderReviews === 'function') window.renderReviews(); } catch (e) {}
+    try { if (typeof window.renderPasses === 'function') window.renderPasses(); } catch (e) {}
+    try { if (typeof window.renderFailures === 'function') window.renderFailures(); } catch (e) {}
+    try { if (typeof window.renderLearnings === 'function') window.renderLearnings(); } catch (e) {}
+    try { if (typeof window.updateDisplays === 'function') window.updateDisplays(); } catch (e) {}
+  }
+
   function installLiveOneSecondSync() {
     if (typeof window.fetchAllScores !== 'function' || window.__edgeLive1sInstalled) return;
     window.__edgeLive1sInstalled = true;
@@ -4013,6 +4146,7 @@ init();
       lastFetchAt = nowTs;
       try {
         await baseFetch();
+        refreshAllLogViews();
         const seeded = seedPicksFromLiveScores(false);
         if (seeded || picksVisible) renderPicksTab();
       } finally {
@@ -4021,8 +4155,20 @@ init();
       }
     };
 
+    function refreshLiveViewsOnly() {
+      if (typeof window.renderScores === 'function') window.renderScores();
+      if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
+      const picksTab = document.getElementById('tab-picks');
+      const picksVisible = !!(picksTab && !picksTab.classList.contains('tab-hidden'));
+      if (picksVisible && typeof window.renderPicksTab === 'function') window.renderPicksTab();
+    }
+
     function tick() {
-      const wait = document.visibilityState === 'visible' ? 1000 : 5000;
+      const visible = document.visibilityState === 'visible';
+      const wait = visible ? 1000 : 5000;
+      // Non-leader tabs still repaint every second from shared state so LIVE tags/clocks
+      // shift instantly when leader updates scoreboard data.
+      if (visible) refreshLiveViewsOnly();
       window.fetchAllScores({ force: false }).catch(function () {});
       setTimeout(tick, wait);
     }
@@ -4085,6 +4231,7 @@ init();
   }
 
   // init enhancements
+  hydrateCoreStateRefs();
   ensureDailyPicks();
   ensureMorningPicksReady();
   setSelectedScoreDateKey(getSelectedScoreDateKey());
@@ -4100,6 +4247,7 @@ init();
   renderPicksTab();
   if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
   installLiveOneSecondSync();
+  refreshAllLogViews();
   installSidebarToggle();
   window.openGameById = function openGameById(eventId) {
     const id = String(eventId || '');
