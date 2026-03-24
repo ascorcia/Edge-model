@@ -2009,7 +2009,7 @@ function renderBetLog(){
   const statusMap={placed:'status-placed">PLACED',early:'status-early">EARLY',won:'status-win">WIN ✓',lost:'status-loss">LOSS ✗',pending:'status-pending">PENDING'};
   const srcBadge=s=>s==='my'?'<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--blue-dim);color:var(--blue);padding:2px 5px;border-radius:2px">MY PICK</span>':'<span style="font-family:\'Space Mono\',monospace;font-size:9px;background:var(--green-dim);color:var(--green);padding:2px 5px;border-radius:2px">SYSTEM</span>';
   container.innerHTML=bets.map(b=>`
-    <div class="bet-row">
+    <div class="bet-row" data-logtype="BET LOG" data-logid="${b.id}" style="cursor:pointer">
       <span style="color:var(--text3);font-size:11px">${b.date}</span>
       <div><div style="font-size:12px;font-weight:600;color:var(--accent)">${b.game}</div><div style="color:var(--text2);font-size:11px">${b.pick}</div></div>
       <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text2)">${b.odds}</span>
@@ -2041,7 +2041,7 @@ function renderReviews(){
     const rc=r.result==='WIN'?'var(--green)':r.result==='LOSS'?'var(--red)':'var(--yellow)';
     const pc=parseFloat(r.pl)>=0?'var(--green)':'var(--red)';
     const clv=parseFloat(r.clv);
-    return `<div class="review-card">
+    return `<div class="review-card" data-logtype="REVIEW" data-logid="${r.id}" style="cursor:pointer">
       <div class="review-header">
         <div><div style="font-size:14px;font-weight:600;color:var(--accent)">${r.game}</div><div style="color:var(--text2);font-size:12px">${r.pick}</div></div>
         <div style="text-align:right"><div style="font-family:'Space Mono',monospace;font-size:16px;color:${rc}">${r.result}</div><div style="font-family:'Space Mono',monospace;font-size:12px;color:${pc}">${fmtPL(r.pl)}</div></div>
@@ -2099,15 +2099,91 @@ function updateROI(){
 // ════════════════════════════════════════════════════════
 function showAddPassForm(){document.getElementById('addPassForm').classList.remove('tab-hidden');document.getElementById('passDate').value=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function addPass(){state.passes.push({id:Date.now(),date:document.getElementById('passDate').value,game:document.getElementById('passGame').value,decision:document.getElementById('passDecision').value,reason:document.getElementById('passReason').value});saveState();renderPasses();document.getElementById('addPassForm').classList.add('tab-hidden');}
-function renderPasses(){const c=document.getElementById('passLogContainer');if(!c)return;if(!state.passes.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No pass log entries yet</div>';return;}const map={bet:'pass-bet',pass:'pass-pass',consider:'pass-consider'};c.innerHTML=state.passes.slice().reverse().map(p=>`<div class="pass-row"><span class="pass-status ${map[p.decision]||'pass-pass'}">${p.decision.toUpperCase()}</span><div style="flex:1"><div style="font-size:12px;font-weight:600">${p.game}</div><div style="color:var(--text2);font-size:11px">${p.reason}</div><div style="color:var(--text3);font-size:10px;font-family:'Space Mono',monospace">${p.date}</div></div></div>`).join('');}
+function renderPasses(){const c=document.getElementById('passLogContainer');if(!c)return;if(!state.passes.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No pass log entries yet</div>';return;}const map={bet:'pass-bet',pass:'pass-pass',consider:'pass-consider'};c.innerHTML=state.passes.slice().reverse().map(p=>`<div class="pass-row" data-logtype="PASS" data-logid="${p.id}" style="cursor:pointer"><span class="pass-status ${map[p.decision]||'pass-pass'}">${p.decision.toUpperCase()}</span><div style="flex:1"><div style="font-size:12px;font-weight:600">${p.game}</div><div style="color:var(--text2);font-size:11px">${p.reason}</div><div style="color:var(--text3);font-size:10px;font-family:'Space Mono',monospace">${p.date}</div></div></div>`).join('');}
 
 function showAddFailureForm(){document.getElementById('addFailureForm').classList.remove('tab-hidden');document.getElementById('failDate').value=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function addFailure(){state.failures.push({id:Date.now(),date:document.getElementById('failDate').value,desc:document.getElementById('failDesc').value,cost:document.getElementById('failCost').value,prev:document.getElementById('failPrev').value});saveState();renderFailures();document.getElementById('addFailureForm').classList.add('tab-hidden');}
-function renderFailures(){const c=document.getElementById('failureContainer');if(!c)return;if(!state.failures.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No failures logged.</div>';return;}c.innerHTML=state.failures.slice().reverse().map(f=>`<div class="failure-row"><div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);margin-bottom:3px">${f.date}</div><div style="color:var(--text);margin-bottom:2px">${f.desc}</div>${f.cost?`<div style="color:var(--red);font-size:11px">Cost: ${f.cost}</div>`:''} ${f.prev?`<div style="color:var(--green);font-size:11px">Fix: ${f.prev}</div>`:''}</div>`).join('');}
+function renderFailures(){const c=document.getElementById('failureContainer');if(!c)return;if(!state.failures.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No failures logged.</div>';return;}c.innerHTML=state.failures.slice().reverse().map(f=>`<div class="failure-row" data-logtype="FAILURE" data-logid="${f.id}" style="cursor:pointer"><div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);margin-bottom:3px">${f.date}</div><div style="color:var(--text);margin-bottom:2px">${f.desc}</div>${f.cost?`<div style="color:var(--red);font-size:11px">Cost: ${f.cost}</div>`:''} ${f.prev?`<div style="color:var(--green);font-size:11px">Fix: ${f.prev}</div>`:''}</div>`).join('');}
 
 function showAddLearningForm(){document.getElementById('addLearningForm').classList.remove('tab-hidden');document.getElementById('learnDate').value=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function addLearning(){state.learnings.push({id:Date.now(),date:document.getElementById('learnDate').value,pattern:document.getElementById('learnPattern').value,data:document.getElementById('learnData').value,app:document.getElementById('learnApp').value,conf:document.getElementById('learnConf').value});saveState();renderLearnings();document.getElementById('addLearningForm').classList.add('tab-hidden');}
-function renderLearnings(){const c=document.getElementById('learningContainer');if(!c)return;if(!state.learnings.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No learning entries yet.</div>';return;}const cc={provisional:'var(--yellow)',confirmed:'var(--blue)',rule:'var(--green)'};c.innerHTML=state.learnings.slice().reverse().map(l=>`<div class="learning-row"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text3)">${l.date}</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:${cc[l.conf]||'var(--text3)'}">${l.conf.toUpperCase()}</span></div><div style="font-size:12px;font-weight:600;margin-bottom:4px">${l.pattern}</div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">${l.data}</div><div style="font-size:11px;color:var(--green)">→ ${l.app}</div></div>`).join('');}
+function renderLearnings(){const c=document.getElementById('learningContainer');if(!c)return;if(!state.learnings.length){c.innerHTML='<div style="color:var(--text3);font-size:12px">No learning entries yet.</div>';return;}const cc={provisional:'var(--yellow)',confirmed:'var(--blue)',rule:'var(--green)'};c.innerHTML=state.learnings.slice().reverse().map(l=>`<div class="learning-row" data-logtype="LEARNING" data-logid="${l.id}" style="cursor:pointer"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--text3)">${l.date}</span><span style="font-family:'Space Mono',monospace;font-size:9px;color:${cc[l.conf]||'var(--text3)'}">${l.conf.toUpperCase()}</span></div><div style="font-size:12px;font-weight:600;margin-bottom:4px">${l.pattern}</div><div style="font-size:11px;color:var(--text2);margin-bottom:4px">${l.data}</div><div style="font-size:11px;color:var(--green)">→ ${l.app}</div></div>`).join('');}
+
+function safeUiText(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function safeTxt(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+function openLogDetailModal(type,payload){
+  const old=document.getElementById('logDetailModal');if(old)old.remove();
+  const p=(payload&&typeof payload==='object')?payload:{};
+  const overlay=document.createElement('div');
+  overlay.id='logDetailModal';
+  overlay.className='modal-overlay';
+  overlay.onclick=function(e){if(e.target===overlay)overlay.remove();};
+  const title=String(type||'LOG DETAIL').toUpperCase();
+  let rows=[];
+  Object.keys(p).forEach(function(k){
+    if(k==='id') return;
+    const v=p[k];
+    if(v===undefined||v===null||v==='') return;
+    rows.push('<div class="roi-cell"><div class="roi-label">'+safeTxt(k)+'</div><div class="roi-value" style="font-size:12px;color:var(--text)">'+safeTxt(v)+'</div></div>');
+  });
+  if(!rows.length) rows=['<div style="font-size:12px;color:var(--text3)">No detail fields available.</div>'];
+  overlay.innerHTML='<div class="modal-box">'+
+    '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'+
+    '<div style="font-size:16px;font-weight:700;color:#fff">'+safeTxt(title)+'</div>'+
+    '<button class="btn" onclick="document.getElementById(\'logDetailModal\').remove()">CLOSE</button>'+
+    '</div>'+
+    '<div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">'+rows.join('')+'</div>'+
+    '</div>';
+  document.body.appendChild(overlay);
+}
+
+function installLogInteractivity(){
+  if(window.__edgeLogInteractivityInstalled) return;
+  window.__edgeLogInteractivityInstalled=true;
+  const idToArr=function(type){
+    const t=String(type||'').toUpperCase();
+    if(t==='BET LOG') return state.bets||[];
+    if(t==='REVIEW') return state.reviews||[];
+    if(t==='PASS') return state.passes||[];
+    if(t==='FAILURE') return state.failures||[];
+    if(t==='LEARNING') return state.learnings||[];
+    return [];
+  };
+  document.body.addEventListener('click',function(e){
+    const row=e.target&&e.target.closest?e.target.closest('[data-logtype][data-logid]'):null;
+    if(!row) return;
+    const type=row.getAttribute('data-logtype')||'LOG DETAIL';
+    const id=String(row.getAttribute('data-logid')||'');
+    const arr=idToArr(type);
+    const item=arr.find(function(x){return x && String(x.id)===id;})||null;
+    if(item) openLogDetailModal(type,item);
+  });
+}
+
+function installLogInteractivity(){
+  if(window.__edgeLogInteractivityInstalled) return;
+  window.__edgeLogInteractivityInstalled=true;
+  const idToArr=function(type){
+    const t=String(type||'').toUpperCase();
+    if(t==='BET LOG') return state.bets||[];
+    if(t==='REVIEW') return state.reviews||[];
+    if(t==='PASS') return state.passes||[];
+    if(t==='FAILURE') return state.failures||[];
+    if(t==='LEARNING') return state.learnings||[];
+    return [];
+  };
+  document.body.addEventListener('click',function(e){
+    const row=e.target&&e.target.closest?e.target.closest('[data-logtype][data-logid]'):null;
+    if(!row) return;
+    const type=row.getAttribute('data-logtype')||'LOG DETAIL';
+    const id=String(row.getAttribute('data-logid')||'');
+    const arr=idToArr(type);
+    const item=arr.find(function(x){return String(x&&x.id)!=null&&String(x.id)===id;})||null;
+    if(item) openLogDetailModal(type,item);
+  });
+}
+window.installLogInteractivity = installLogInteractivity;
 
 // ════════════════════════════════════════════════════════
 // RULES
@@ -2419,9 +2495,11 @@ init();
   }
 
   function getOperationalBaseDate() {
-    const now = new Date();
-    const d = new Date(now);
-    const mins = now.getHours() * 60 + now.getMinutes();
+  // Use ET-based sports day boundary for scoreboard date keys.
+  const now = new Date();
+  const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const d = new Date(etNow);
+  const mins = etNow.getHours() * 60 + etNow.getMinutes();
     if (mins < 150) d.setDate(d.getDate() - 1); // switch "today" at 2:30am
     d.setHours(0, 0, 0, 0);
     return d;
@@ -2453,6 +2531,13 @@ init();
     if (diff === 1) return 'TOMORROW';
     if (diff === -1) return 'YESTERDAY';
     return dd.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+  }
+
+  function forceLiveNowDay() {
+    const nowEt = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const key = toScoreDateKey(nowEt);
+    window.__selectedScoreDayKey = key;
+    return key;
   }
 
   function ensureDailyPicks() {
@@ -3580,11 +3665,12 @@ init();
   }
 
   function getAllScoreGames() {
-    if (typeof window.espnScores !== 'object' || !espnScores) return [];
+    const src = (typeof window.espnScores === 'object' && window.espnScores) ? window.espnScores : espnScores;
+    if (!src || typeof src !== 'object') return [];
     return []
-      .concat(Array.isArray(espnScores.nhl) ? espnScores.nhl : [])
-      .concat(Array.isArray(espnScores.nba) ? espnScores.nba : [])
-      .concat(Array.isArray(espnScores.ncaa) ? espnScores.ncaa : []);
+      .concat(Array.isArray(src.nhl) ? src.nhl : [])
+      .concat(Array.isArray(src.nba) ? src.nba : [])
+      .concat(Array.isArray(src.ncaa) ? src.ncaa : []);
   }
 
   function gameByKey(key) {
@@ -4083,6 +4169,7 @@ init();
     try { if (typeof window.renderFailures === 'function') window.renderFailures(); } catch (e) {}
     try { if (typeof window.renderLearnings === 'function') window.renderLearnings(); } catch (e) {}
     try { if (typeof window.updateDisplays === 'function') window.updateDisplays(); } catch (e) {}
+    try { if (typeof window.installLogInteractivity === 'function') window.installLogInteractivity(); } catch (e) {}
   }
 
   function installLiveOneSecondSync() {
@@ -4277,6 +4364,7 @@ init();
   installHourlyPickCycle();
   renderPicksTab();
   if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
+  installLogInteractivity();
   installLiveOneSecondSync();
   refreshAllLogViews();
   installSidebarToggle();

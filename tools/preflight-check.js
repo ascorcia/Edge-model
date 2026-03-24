@@ -113,6 +113,10 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'function hydrateCoreStateRefs()', 'enhancement state hydration helper');
   mustContain(html, 'function refreshAllLogViews()', 'log rerender helper');
   mustContain(html, 'refreshAllLogViews();', 'log rerender init call');
+  mustContain(html, 'function installLogInteractivity()', 'log interactivity installer');
+  mustContain(html, 'data-logtype=', 'log row data marker');
+  mustContain(html, 'data-logid=', 'log row id marker');
+  mustContain(html, "openLogDetailModal(type,item)", 'log detail modal trigger');
   mustContain(html, 'function safeInlineText(', 'safe inline text helper');
   mustContain(html, 'function teamLogoMapForPick(', 'pick team logo mapper');
   mustContain(html, 'function teamLogoBadgeHtml(', 'pick team logo renderer');
