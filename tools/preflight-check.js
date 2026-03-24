@@ -117,6 +117,17 @@ function checkCoreFeatures(html, dom) {
   mustContain(html, 'data-logtype=', 'log row data marker');
   mustContain(html, 'data-logid=', 'log row id marker');
   mustContain(html, "openLogDetailModal(type,item)", 'log detail modal trigger');
+  mustContain(html, "showTab('enginelab'", 'engine lab nav tab');
+  mustContain(html, 'id="tab-enginelab"', 'engine lab tab');
+  mustContain(html, 'function runAutonomousEngineCycle(', 'autonomous engine cycle');
+  mustContain(html, 'function renderEngineRuntimePanel(', 'engine runtime panel renderer');
+  mustContain(html, 'window.runEngineCycleNow', 'manual engine cycle entrypoint');
+  mustContain(html, 'window.toggleAutoEngineCycle', 'engine auto toggle');
+  mustContain(html, 'window.updateEngineSettings', 'engine settings updater');
+  mustContain(html, 'ENGINE_RUNTIME_KEY', 'engine runtime storage key');
+  mustContain(html, 'docs/ENGINE_V2_SPEC.md', 'engine v2 spec reference');
+  mustContain(html, 'function systemRoiSnapshot(', 'engine roi snapshot helper');
+  mustContain(html, 'function updateEngineLearningTelemetry(', 'engine telemetry updater');
   mustContain(html, 'function safeInlineText(', 'safe inline text helper');
   mustContain(html, 'function teamLogoMapForPick(', 'pick team logo mapper');
   mustContain(html, 'function teamLogoBadgeHtml(', 'pick team logo renderer');

@@ -218,6 +218,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .failure-row:hover{background:var(--bg3)}
 .learning-row{padding:8px 6px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;transition:background .1s;border-radius:3px}
 .learning-row:hover{background:var(--bg3)}
+.engine-status-pill{font-family:'Space Mono',monospace;font-size:9px;padding:2px 6px;border-radius:2px;display:inline-flex;align-items:center;gap:4px}
+.engine-status-pill.on{background:var(--green-dim);color:var(--green)}
+.engine-status-pill.off{background:var(--bg4);color:var(--text3)}
 .failure-date,.clv-positive,.clv-negative{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);margin-bottom:3px}
 .clv-positive{color:var(--green)}.clv-negative{color:var(--red)}
 
@@ -355,6 +358,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   <button class="nav-tab" onclick="showTab('standings',this)">STANDINGS</button>
   <button class="nav-tab" onclick="showTab('sniper',this)" style="color:var(--orange)">🎯 SNIPER</button>
   <button class="nav-tab" onclick="showTab('picks',this)">PICKS</button>
+  <button class="nav-tab" onclick="showTab('enginelab',this)">ENGINE LAB</button>
   <button class="nav-tab" onclick="showTab('betlog',this)">BET LOG</button>
   <button class="nav-tab" onclick="showTab('postbets',this)">POST-GAME</button>
   <button class="nav-tab" onclick="showTab('roi',this)">ROI</button>
@@ -689,6 +693,40 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   <div class="panel"><div class="panel-body" id="learningContainer"><div style="color:var(--text3);font-size:12px">No learning entries yet.</div></div></div>
 </div>
 
+<!-- ═══════ ENGINE LAB ═══════ -->
+<div id="tab-enginelab" class="tab-hidden">
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title">Engine Runtime (Auto)</div></div>
+    <div class="panel-body">
+      <div class="roi-grid">
+        <div class="roi-cell"><div class="roi-label">ENGINE MODE</div><div class="roi-value" id="engineModeStat" style="font-size:11px;color:var(--text2)">HEURISTIC + LEARNING</div></div>
+        <div class="roi-cell"><div class="roi-label">CYCLE</div><div class="roi-value" id="engineCycleStat" style="font-size:11px;color:var(--text2)">—</div></div>
+        <div class="roi-cell"><div class="roi-label">LAST CYCLE</div><div class="roi-value" id="engineLastCycleStat" style="font-size:11px;color:var(--text2)">—</div></div>
+        <div class="roi-cell"><div class="roi-label">LIVE GAMES</div><div class="roi-value" id="engineLiveGamesStat" style="font-size:11px;color:var(--text2)">0</div></div>
+        <div class="roi-cell"><div class="roi-label">ACTIVE PICKS</div><div class="roi-value" id="engineActivePicksStat" style="font-size:11px;color:var(--text2)">0</div></div>
+        <div class="roi-cell"><div class="roi-label">SYSTEM ROI</div><div class="roi-value" id="engineRoiStat" style="font-size:11px;color:var(--text2)">—</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn" onclick="if(window.runEngineCycleNow)window.runEngineCycleNow()">RUN ENGINE CYCLE NOW</button>
+        <button class="btn" onclick="if(window.manualRefreshPicks)window.manualRefreshPicks()">REFRESH PICKS NOW</button>
+      </div>
+      <div id="engineCycleStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--text3);margin-top:8px">Auto cycle every 3 minutes and on live-score updates.</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title">V1 → V2 Build Spec</div></div>
+    <div class="panel-body">
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px">
+        Read the implementation roadmap in <code style="background:var(--bg4);padding:1px 4px;border-radius:2px">docs/ENGINE_V2_SPEC.md</code>.
+        This defines architecture, data contracts, autonomous learning loop, and rollout phases.
+      </div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6">
+        Focus: accurate ET-time live sync, persistent model telemetry, bankroll-safe auto cycling, and progressive migration from heuristic engine to calibrated model stack.
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════ SETTINGS ═══════ -->
 <div id="tab-settings" class="tab-hidden">
   <div class="panel">
@@ -721,6 +759,21 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
         <button class="btn" onclick="exportData()">EXPORT ALL DATA (JSON)</button>
         <button class="btn" onclick="document.getElementById('importFile').click()">IMPORT DATA</button>
         <input type="file" id="importFile" style="display:none" onchange="importData(event)">
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title">Engine Runtime Controls</div></div>
+    <div class="panel-body">
+      <div class="input-row"><span class="input-label">Auto Cycle</span><span id="engineAutoStatusPill" class="engine-status-pill on">AUTO ON</span></div>
+      <div class="input-row"><span class="input-label">Cycle (seconds)</span><input class="input" id="engineRuntimeCycleMs" type="number" min="30" step="10" value="180"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" onclick="if(window.toggleAutoEngineCycle)window.toggleAutoEngineCycle()">TOGGLE AUTO CYCLE</button>
+        <button class="btn" onclick="if(window.updateEngineSettings)window.updateEngineSettings()">SAVE ENGINE SETTINGS</button>
+        <button class="btn" onclick="if(window.openEngineSpec)window.openEngineSpec()">OPEN V2 SPEC</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:8px">
+        Engine loop updates telemetry, re-sorts picks, and applies bankroll-safe sizing automatically.
       </div>
     </div>
   </div>
@@ -2386,6 +2439,45 @@ init();
     }
   }
 
+  const ENGINE_RUNTIME_KEY = 'edge_engine_runtime_v1';
+
+  function getEngineRuntime() {
+    try {
+      const raw = localStorage.getItem(ENGINE_RUNTIME_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return Object.assign({
+            autoCycleEnabled: true,
+            cycleMs: 180000,
+            lastCycleTs: 0,
+            cycleCount: 0,
+            lastSummary: '',
+            learningRate: 0,
+            etTimestamp: '',
+            currentDayKey: ''
+          }, parsed);
+        }
+      }
+    } catch (e) {}
+    return {
+      autoCycleEnabled: true,
+      cycleMs: 180000,
+      lastCycleTs: 0,
+      cycleCount: 0,
+      lastSummary: '',
+      learningRate: 0,
+      etTimestamp: '',
+      currentDayKey: ''
+    };
+  }
+
+  function saveEngineRuntime(rt) {
+    try { localStorage.setItem(ENGINE_RUNTIME_KEY, JSON.stringify(rt || {})); } catch (e) {}
+  }
+
+  window.engineRuntime = getEngineRuntime();
+
   function ensureSharedStateRef() {
     const base = (typeof state === 'object' && state) ? state : null;
     const win = (typeof window.state === 'object' && window.state) ? window.state : null;
@@ -3132,10 +3224,117 @@ init();
     return changed;
   }
 
+  function systemRoiSnapshot() {
+    const reviews = (window.state && Array.isArray(window.state.reviews)) ? window.state.reviews : [];
+    const sys = reviews.filter(function (r) { return String(r && r.source || '').toLowerCase() !== 'my'; });
+    if (!sys.length) return { roiPct: null, winRate: null, count: 0 };
+    const stake = sys.reduce(function (s, r) { return s + (parseFloat(r && r.stake) || 0); }, 0);
+    const pl = sys.reduce(function (s, r) { return s + (parseFloat(r && r.pl) || 0); }, 0);
+    const wins = sys.filter(function (r) { return String(r && r.result || '').toUpperCase() === 'WIN'; }).length;
+    return {
+      roiPct: stake > 0 ? (pl / stake) * 100 : null,
+      winRate: (wins / sys.length) * 100,
+      count: sys.length
+    };
+  }
+
+  function updateEngineLearningTelemetry() {
+    const rt = window.engineRuntime || getEngineRuntime();
+    const roi = systemRoiSnapshot();
+    const lr = roi.roiPct == null ? 0 : clampNum(roi.roiPct / 100, -0.12, 0.12);
+    rt.learningRate = Number(lr.toFixed(4));
+    const nowEt = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    rt.etTimestamp = nowEt.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: true });
+    rt.currentDayKey = toScoreDateKey(nowEt);
+    window.engineRuntime = rt;
+    saveEngineRuntime(rt);
+    return rt;
+  }
+
+  function renderEngineRuntimePanel() {
+    const rt = window.engineRuntime || getEngineRuntime();
+    const setTxt = function (id, v, col) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = v;
+      if (col) el.style.color = col;
+    };
+    const picks = (window.state && window.state[DAILY_KEY] && window.state[DAILY_KEY][todayKey()]) || [];
+    const actionable = picks.filter(function (p) { return !isPlaceholderPick(p); });
+    const liveCount = getAllScoreGames().filter(function (g) { return g && g.status === 'inprogress'; }).length;
+    const roi = systemRoiSnapshot();
+    setTxt('engineCycleStat', rt.autoCycleEnabled ? ('AUTO · ' + Math.round((Number(rt.cycleMs) || 180000) / 1000) + 'S') : 'MANUAL');
+    setTxt('engineLastCycleStat', rt.lastCycleTs ? new Date(rt.lastCycleTs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '—');
+    setTxt('engineLiveGamesStat', String(liveCount));
+    setTxt('engineActivePicksStat', String(actionable.length));
+    setTxt('engineRoiStat', roi.roiPct == null ? '—' : (roi.roiPct >= 0 ? '+' : '') + roi.roiPct.toFixed(1) + '%', roi.roiPct == null ? 'var(--text2)' : (roi.roiPct >= 0 ? 'var(--green)' : 'var(--red)'));
+    const statusEl = document.getElementById('engineCycleStatus');
+    if (statusEl) {
+      statusEl.innerHTML =
+        '<span class="engine-status-pill ' + (rt.autoCycleEnabled ? 'on' : 'off') + '">' + (rt.autoCycleEnabled ? 'AUTO ON' : 'AUTO OFF') + '</span> ' +
+        'Last ET sync: ' + safeInlineText(rt.etTimestamp || '—') +
+        ' · Learning rate: ' + (Number(rt.learningRate || 0) >= 0 ? '+' : '') + Number(rt.learningRate || 0).toFixed(3);
+    }
+  }
+
+  function runAutonomousEngineCycle(trigger) {
+    const rt = window.engineRuntime || getEngineRuntime();
+    if (!rt.autoCycleEnabled && trigger !== 'manual') return false;
+    const seededFromScores = seedPicksFromLiveScores(false);
+    const seededMorning = ensureMorningPicksReady();
+    const sorted = maybeRunHourlyPickCycle(true);
+    rt.lastCycleTs = Date.now();
+    rt.cycleCount = (Number(rt.cycleCount) || 0) + 1;
+    rt.lastSummary = [trigger || 'auto', seededFromScores ? 'seeded' : 'no-seed', seededMorning ? 'morning-seed' : 'no-morning-seed', sorted ? 'sorted' : 'no-sort'].join(' · ');
+    updateEngineLearningTelemetry();
+    window.engineRuntime = rt;
+    saveEngineRuntime(rt);
+    renderEngineRuntimePanel();
+    const picksTab = document.getElementById('tab-picks');
+    if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
+    return true;
+  }
+
+  window.runEngineCycleNow = function runEngineCycleNow() {
+    runAutonomousEngineCycle('manual');
+    const statusEl = document.getElementById('engineCycleStatus');
+    if (statusEl) statusEl.textContent = 'Manual engine cycle complete just now.';
+  };
+
+  window.toggleAutoEngineCycle = function toggleAutoEngineCycle() {
+    const rt = window.engineRuntime || getEngineRuntime();
+    rt.autoCycleEnabled = !rt.autoCycleEnabled;
+    window.engineRuntime = rt;
+    saveEngineRuntime(rt);
+    renderEngineRuntimePanel();
+  };
+
+  window.updateEngineSettings = function updateEngineSettings() {
+    const rt = window.engineRuntime || getEngineRuntime();
+    const cycleEl = document.getElementById('engineRuntimeCycleMs');
+    const cycle = Math.max(30, Number(cycleEl && cycleEl.value) || 180) * 1000;
+    rt.cycleMs = cycle;
+    window.engineRuntime = rt;
+    saveEngineRuntime(rt);
+    renderEngineRuntimePanel();
+  };
+
+  window.openEngineSpec = function openEngineSpec() {
+    alert('Open docs/ENGINE_V2_SPEC.md in your repo to review full build plan.');
+  };
+
+  function installEngineRuntimeControls() {
+    const rt = window.engineRuntime || getEngineRuntime();
+    const cycleSec = Math.max(30, Math.round((Number(rt.cycleMs) || 180000) / 1000));
+    const cycleEl = document.getElementById('engineRuntimeCycleMs');
+    if (cycleEl) cycleEl.value = String(cycleSec);
+  }
+
   function installHourlyPickCycle() {
     if (window.__hourlyPickCycleInstalled) return;
     window.__hourlyPickCycleInstalled = true;
     maybeRunHourlyPickCycle(true);
+    runAutonomousEngineCycle('boot');
     setInterval(function () {
       if (maybeRunHourlyPickCycle(false)) {
         const picksTab = document.getElementById('tab-picks');
@@ -3148,6 +3347,16 @@ init();
         if (picksTab && !picksTab.classList.contains('tab-hidden')) renderPicksTab();
       }
     });
+    setInterval(function () {
+      const rt = window.engineRuntime || getEngineRuntime();
+      const cycleMs = Math.max(30000, Number(rt.cycleMs) || 180000);
+      const last = Number(rt.lastCycleTs) || 0;
+      if ((Date.now() - last) < cycleMs) return;
+      runAutonomousEngineCycle('auto');
+    }, 10000);
+    setInterval(function () {
+      renderEngineRuntimePanel();
+    }, 1000);
   }
 
   window.manualRefreshPicks = async function manualRefreshPicks() {
