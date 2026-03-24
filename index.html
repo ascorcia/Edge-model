@@ -3753,10 +3753,10 @@ init();
   }
 
   function getSelectedScoreDateKey() {
-    let key = null;
-    try { key = localStorage.getItem(SCORE_DAY_KEY); } catch (e) {}
-    if (!key) key = toScoreDateKey(getOperationalBaseDate());
-    return key;
+    if (window.__selectedScoreDayKey) return window.__selectedScoreDayKey;
+    // Default to operational "today" each session so users do not get stuck
+    // on an old persisted day that shows only scheduled games.
+    return toScoreDateKey(getOperationalBaseDate());
   }
 
   function setSelectedScoreDateKey(key) {
@@ -3811,6 +3811,7 @@ init();
           const key = btn.getAttribute('data-scoreday');
           if (!key) return;
           setSelectedScoreDateKey(key);
+          window.__scoreDayLockedByUser = true;
           render();
           if (typeof window.fetchAllScores === 'function') window.fetchAllScores();
         });
@@ -3870,6 +3871,7 @@ init();
       if (nhl.status === 'fulfilled') { espnScores.nhl = indexESPNGames(nhl.value, 'NHL'); ok = true; }
       if (nba.status === 'fulfilled') { espnScores.nba = indexESPNGames(nba.value, 'NBA'); ok = true; }
       if (ncaa.status === 'fulfilled') { espnScores.ncaa = indexESPNGames(ncaa.value, 'NCAA'); ok = true; }
+      window.espnScores = espnScores;
       if (typeof window.renderScores === 'function') window.renderScores();
       if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
       const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
@@ -4092,6 +4094,7 @@ init();
     const LEADER_KEY = 'edge_live_leader_v1';
     const LEADER_STALE_MS = 12000;
     const MIN_FETCH_GAP_MS = 2500;
+    const SCORE_CACHE_KEY = 'edge_live_scores_cache_v1';
     const leaderId = 'tab_' + Math.random().toString(36).slice(2);
 
     if (window.__baseScoreInterval) {
@@ -4115,6 +4118,30 @@ init();
       try { localStorage.setItem(LEADER_KEY, JSON.stringify({ id: leaderId, ts: Number(ts) || Date.now() })); } catch (e) {}
     }
 
+    function writeScoreCache() {
+      try {
+        const payload = { ts: Date.now(), scores: window.espnScores || espnScores || { nhl: [], nba: [], ncaa: [] } };
+        localStorage.setItem(SCORE_CACHE_KEY, JSON.stringify(payload));
+      } catch (e) {}
+    }
+
+    function applyScoreCache() {
+      try {
+        const raw = localStorage.getItem(SCORE_CACHE_KEY);
+        if (!raw) return false;
+        const payload = JSON.parse(raw);
+        if (!payload || typeof payload !== 'object' || !payload.scores || typeof payload.scores !== 'object') return false;
+        const s = payload.scores;
+        espnScores.nhl = Array.isArray(s.nhl) ? s.nhl : [];
+        espnScores.nba = Array.isArray(s.nba) ? s.nba : [];
+        espnScores.ncaa = Array.isArray(s.ncaa) ? s.ncaa : [];
+        window.espnScores = espnScores;
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
     function amLeader(ts) {
       const nowTs = Number(ts) || Date.now();
       const lead = readLeader();
@@ -4133,10 +4160,12 @@ init();
       const picksVisible = !!(picksTab && !picksTab.classList.contains('tab-hidden'));
 
       if (!force && !leader) {
+        applyScoreCache();
         if (picksVisible) renderPicksTab();
         return;
       }
       if (!force && (nowTs - lastFetchAt) < MIN_FETCH_GAP_MS) {
+        applyScoreCache();
         if (picksVisible) renderPicksTab();
         return;
       }
@@ -4146,6 +4175,7 @@ init();
       lastFetchAt = nowTs;
       try {
         await baseFetch();
+        writeScoreCache();
         refreshAllLogViews();
         const seeded = seedPicksFromLiveScores(false);
         if (seeded || picksVisible) renderPicksTab();
@@ -4156,6 +4186,7 @@ init();
     };
 
     function refreshLiveViewsOnly() {
+      applyScoreCache();
       if (typeof window.renderScores === 'function') window.renderScores();
       if (typeof window.renderScoresFull === 'function') window.renderScoresFull();
       const picksTab = document.getElementById('tab-picks');
